@@ -5,15 +5,14 @@ import {
   Text,
   SafeAreaView,
   StatusBar,
-  YellowBox,
-  Button,
+  LogBox,
 } from 'react-native';
 import Form from './src/components/Form';
 import Footer from './src/components/Footer';
 import ResultCalculation from './src/components/ResultCalculation';
 import colors from './src/utils/colors';
 
-YellowBox.ignoreWarnings(['Picker has been extracted']);
+LogBox.ignoreLogs(['Picker has been extracted']);
 
 export default function App() {
   const [capital, setCapital] = useState(null);
@@ -37,11 +36,19 @@ export default function App() {
       setErrorMessage('Seleccióna los meses a pagar');
     } else {
       const i = interest / 100;
-      const fee = capital / ((1 - Math.pow(i + 1, -months)) / i);
-      setTotal({
-        monthlyFee: fee.toFixed(2).replace('.', ','),
-        totalPayable: (fee * months).toFixed(2).replace('.', ','),
-      });
+      if (i === 0) {
+        const fee = capital / months;
+        setTotal({
+          monthlyFee: fee.toFixed(2).replace('.', ','),
+          totalPayable: (fee * months).toFixed(2).replace('.', ','),
+        });
+      } else {
+        const fee = capital / ((1 - Math.pow(i + 1, -months)) / i);
+        setTotal({
+          monthlyFee: fee.toFixed(2).replace('.', ','),
+          totalPayable: (fee * months).toFixed(2).replace('.', ','),
+        });
+      }
     }
   };
 

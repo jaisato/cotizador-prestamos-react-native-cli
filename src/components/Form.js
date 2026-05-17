@@ -6,6 +6,13 @@ import colors from '../utils/colors';
 export default function Form(props) {
   const {setCapital, setInterest, setMonths} = props;
 
+  const sanitizeNumericInput = (text) => {
+    // Only allow digits and decimal point, prevent injection
+    const sanitized = text.replace(/[^0-9.]/g, '');
+    const parsed = parseFloat(sanitized);
+    return isNaN(parsed) || parsed < 0 ? null : parsed;
+  };
+
   return (
     <View style={styles.viewForm}>
       <View style={styles.viewInputs}>
@@ -13,13 +20,15 @@ export default function Form(props) {
           placeholder="Cantidad a pedir"
           keyboardType="numeric"
           style={styles.input}
-          onChange={(e) => setCapital(e.nativeEvent.text)}
+          maxLength={12}
+          onChange={(e) => setCapital(sanitizeNumericInput(e.nativeEvent.text))}
         />
         <TextInput
           placeholder="Interes %"
           keyboardType="numeric"
           style={[styles.input, styles.inputPercentage]}
-          onChange={(e) => setInterest(e.nativeEvent.text)}
+          maxLength={5}
+          onChange={(e) => setInterest(sanitizeNumericInput(e.nativeEvent.text))}
         />
       </View>
       <RNPickerSelect

@@ -5,7 +5,7 @@ import {
   Text,
   SafeAreaView,
   StatusBar,
-  YellowBox,
+  LogBox,
   Button,
 } from 'react-native';
 import Form from './src/components/Form';
@@ -13,7 +13,7 @@ import Footer from './src/components/Footer';
 import ResultCalculation from './src/components/ResultCalculation';
 import colors from './src/utils/colors';
 
-YellowBox.ignoreWarnings(['Picker has been extracted']);
+LogBox.ignoreLogs(['Picker has been extracted']);
 
 export default function App() {
   const [capital, setCapital] = useState(null);
@@ -29,18 +29,31 @@ export default function App() {
 
   const calculate = () => {
     reset();
-    if (!capital) {
+    const capitalNum = parseFloat(capital);
+    const interestNum = parseFloat(interest);
+    const monthsNum = parseInt(months, 10);
+
+    if (!capitalNum || capitalNum <= 0) {
       setErrorMessage('Añade la cantidad que quieres solicitar');
-    } else if (!interest) {
+    } else if (!interestNum || interestNum <= 0) {
       setErrorMessage('Añade el interes del prestamos');
-    } else if (!months) {
+    } else if (!monthsNum || monthsNum <= 0) {
       setErrorMessage('Seleccióna los meses a pagar');
     } else {
-      const i = interest / 100;
-      const fee = capital / ((1 - Math.pow(i + 1, -months)) / i);
+      const i = interestNum / 100;
+      const denominator = (1 - Math.pow(i + 1, -monthsNum)) / i;
+      if (!denominator || !isFinite(denominator)) {
+        setErrorMessage('Error en el cálculo. Revise los valores ingresados.');
+        return;
+      }
+      const fee = capitalNum / denominator;
+      if (!isFinite(fee)) {
+        setErrorMessage('Error en el cálculo. Revise los valores ingresados.');
+        return;
+      }
       setTotal({
         monthlyFee: fee.toFixed(2).replace('.', ','),
-        totalPayable: (fee * months).toFixed(2).replace('.', ','),
+        totalPayable: (fee * monthsNum).toFixed(2).replace('.', ','),
       });
     }
   };

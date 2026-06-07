@@ -37,9 +37,17 @@ export default function App() {
       setErrorMessage('Añade el interes del prestamos');
     } else if (!months) {
       setErrorMessage('Seleccióna los meses a pagar');
+    } else if (interestNum > 100) {
+      setErrorMessage('El interés no puede ser mayor a 100%');
     } else {
       const i = interestNum / 100;
       const fee = capitalNum / ((1 - Math.pow(i + 1, -months)) / i);
+
+      if (!isFinite(fee) || isNaN(fee)) {
+        setErrorMessage('Error en el cálculo. Verifica los valores ingresados.');
+        return;
+      }
+
       setTotal({
         monthlyFee: fee.toFixed(2).replace('.', ','),
         totalPayable: (fee * months).toFixed(2).replace('.', ','),

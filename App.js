@@ -27,17 +27,29 @@ export default function App() {
     else reset();
   }, [capital, interest, months]);
 
+  const parseNumber = (value) => {
+    if (value === null || value === undefined || value === '') return null;
+    const parsed = parseFloat(String(value).replace(',', '.'));
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+
   const calculate = () => {
     reset();
-    if (!capital) {
+    const capitalValue = parseNumber(capital);
+    const interestValue = parseNumber(interest);
+
+    if (capitalValue === null || capitalValue <= 0) {
       setErrorMessage('Añade la cantidad que quieres solicitar');
-    } else if (!interest) {
+    } else if (interestValue === null || interestValue < 0) {
       setErrorMessage('Añade el interes del prestamos');
     } else if (!months) {
       setErrorMessage('Seleccióna los meses a pagar');
     } else {
-      const i = interest / 100;
-      const fee = capital / ((1 - Math.pow(i + 1, -months)) / i);
+      const i = interestValue / 100;
+      const fee =
+        i === 0
+          ? capitalValue / months
+          : capitalValue / ((1 - Math.pow(i + 1, -months)) / i);
       setTotal({
         monthlyFee: fee.toFixed(2).replace('.', ','),
         totalPayable: (fee * months).toFixed(2).replace('.', ','),

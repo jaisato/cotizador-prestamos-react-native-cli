@@ -82,7 +82,16 @@ export default function App() {
     // At 0% the annuity formula is 0/0: (1 - (1+0)^-n) is zero and so is the
     // divisor, so the monthly fee came out NaN and the summary read "NaN €".
     // With no interest the payment is just the capital spread over the term.
-    const fee = i === 0 ? amount / term : amount / ((1 - Math.pow(i + 1, -term)) / i);
+    //
+    // For a rate that is tiny but not zero, writing that numerator as
+    // 1 - Math.pow(1 + i, -term) cancels almost entirely: at i = 1e-15 and a
+    // 1.000 € twelve-month loan it gave 75,06 € instead of 83,33 €, and by
+    // i = 1e-16 the divisor reached zero and the summary read "Infinity €".
+    // expm1 and log1p compute the same quantity without ever forming the
+    // near-1 intermediate, so the value slides into the 0% answer instead of
+    // falling apart near it. Above about 1e-8 both spellings agree exactly.
+    const discount = -Math.expm1(-term * Math.log1p(i));
+    const fee = i === 0 ? amount / term : amount / (discount / i);
 
     setTotal({
       monthlyFee: fee.toFixed(2).replace('.', ','),

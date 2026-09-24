@@ -15,7 +15,7 @@
     "react-native-picker-select": "^7.0.0"
   },
   "devDependencies": {
-    "@babel/core": "^7.9.6",
+    "@babel/core": "^7.29.6",
     "@babel/runtime": "^7.26.10",
     "@react-native-community/eslint-config": "^1.1.0",
     "babel-jest": "^26.0.1",

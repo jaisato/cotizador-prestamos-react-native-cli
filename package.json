@@ -26,5 +26,10 @@
   },
   "jest": {
     "preset": "react-native"
+  },
+  "resolutions": {
+    "plist": "3.1.0",
+    "browserslist": "4.28.2",
+    "node-releases": "2.0.44"
   }
 }

@@ -1,4 +1,4 @@
-import React, {useState, useEffect} from 'react';
+import React, {useState, useEffect, useCallback} from 'react';
 import {
   StyleSheet,
   View,
@@ -6,7 +6,6 @@ import {
   SafeAreaView,
   StatusBar,
   YellowBox,
-  Button,
 } from 'react-native';
 import Form from './src/components/Form';
 import Footer from './src/components/Footer';
@@ -50,12 +49,12 @@ export default function App() {
   const [total, setTotal] = useState(null);
   const [errorMessage, setErrorMessage] = useState('');
 
-  useEffect(() => {
-    if (capital && interest && months) calculate();
-    else reset();
-  }, [capital, interest, months]);
+  const reset = useCallback(() => {
+    setErrorMessage('');
+    setTotal(null);
+  }, []);
 
-  const calculate = () => {
+  const calculate = useCallback(() => {
     reset();
 
     const amount = toNumber(capital);
@@ -97,12 +96,17 @@ export default function App() {
       monthlyFee: fee.toFixed(2).replace('.', ','),
       totalPayable: (fee * term).toFixed(2).replace('.', ','),
     });
-  };
+  }, [capital, interest, months, reset]);
 
-  const reset = () => {
-    setErrorMessage('');
-    setTotal(null);
-  };
+  // Recalculates as the user types. calculate is memoised on the three inputs,
+  // so listing it here is the same trigger as before, stated honestly.
+  useEffect(() => {
+    if (capital && interest && months) {
+      calculate();
+    } else {
+      reset();
+    }
+  }, [capital, interest, months, calculate, reset]);
 
   return (
     <>

@@ -23,8 +23,10 @@ const ALLOWED = new Map([
       package: 'braces',
       reason:
         'braces <= 3.0.3 no tiene ninguna versión corregida. Llega por ' +
-        'micromatch, que usan Metro (el empaquetador) y Jest; se ejecuta al ' +
-        'construir y en los tests, y no forma parte del bundle de la app.',
+        'micromatch, que usan Metro (el empaquetador), la CLI de React ' +
+        'Native y los paquetes de Jest 29 del preset de Jest de React ' +
+        'Native; se ejecuta al construir y en los tests, y no forma parte ' +
+        'del bundle de la app.',
     },
   ],
 ]);

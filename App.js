@@ -11,36 +11,9 @@ import Form from './src/components/Form';
 import Footer from './src/components/Footer';
 import ResultCalculation from './src/components/ResultCalculation';
 import colors from './src/utils/colors';
+import {toAmount, toNumber} from './src/utils/number';
 
 YellowBox.ignoreWarnings(['Picker has been extracted']);
-
-/**
- * Reads one of the numeric fields.
- *
- * TextInput hands back a string, and the previous code fed it straight to the
- * arithmetic. Two inputs a Spanish user actually types broke that: "3,5" for
- * three and a half is NaN to JavaScript, and anything the numeric keyboard lets
- * through that is not a number ("1e", a stray "-") is too. NaN then propagated
- * all the way to the summary, which read "NaN €".
- *
- * The comma is normalised to a decimal point; anything still not finite comes
- * back as null so the caller can show the field's own message instead.
- */
-const toNumber = (value) => {
-  if (value === null || value === undefined) {
-    return null;
-  }
-
-  const normalised = String(value).trim().replace(',', '.');
-
-  if (normalised === '') {
-    return null;
-  }
-
-  const parsed = Number(normalised);
-
-  return Number.isFinite(parsed) ? parsed : null;
-};
 
 export default function App() {
   const [capital, setCapital] = useState(null);
@@ -57,7 +30,7 @@ export default function App() {
   const calculate = useCallback(() => {
     reset();
 
-    const amount = toNumber(capital);
+    const amount = toAmount(capital);
     const rate = toNumber(interest);
     const term = toNumber(months);
 

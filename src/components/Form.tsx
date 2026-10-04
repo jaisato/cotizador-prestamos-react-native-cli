@@ -1,11 +1,25 @@
-import React from 'react';
-import {StyleSheet, TextInput, View} from 'react-native';
-import RNPickerSelect from 'react-native-picker-select';
+import { StyleSheet, TextInput, View } from 'react-native';
+import RNPickerSelect, { type Item } from 'react-native-picker-select';
 import colors from '../utils/colors';
 
-export default function Form(props) {
-  const {setCapital, setInterest, setMonths} = props;
+type FormProps = {
+  setCapital: (capital: string) => void;
+  setInterest: (interest: string) => void;
+  setMonths: (months: number | null) => void;
+};
 
+const TERMS: Item[] = [
+  { label: '3 meses', value: 3 },
+  { label: '6 meses', value: 6 },
+  { label: '12 meses', value: 12 },
+  { label: '24 meses', value: 24 },
+];
+
+export default function Form({
+  setCapital,
+  setInterest,
+  setMonths,
+}: FormProps) {
   return (
     <View style={styles.viewForm}>
       <View style={styles.viewInputs}>
@@ -13,28 +27,23 @@ export default function Form(props) {
           placeholder="Cantidad a pedir"
           keyboardType="numeric"
           style={styles.input}
-          onChange={(e) => setCapital(e.nativeEvent.text)}
+          onChangeText={setCapital}
         />
         <TextInput
           placeholder="Interes %"
           keyboardType="numeric"
           style={[styles.input, styles.inputPercentage]}
-          onChange={(e) => setInterest(e.nativeEvent.text)}
+          onChangeText={setInterest}
         />
       </View>
       <RNPickerSelect
-        style={picketSelectStyles}
-        onValueChange={(value) => setMonths(value)}
+        style={pickerSelectStyles}
+        onValueChange={(value: number | null) => setMonths(value)}
         placeholder={{
           label: 'Seleccióna los plazos...',
           value: null,
         }}
-        items={[
-          {label: '3 meses', value: 3},
-          {label: '6 meses', value: 6},
-          {label: '12 meses', value: 12},
-          {label: '24 meses', value: 24},
-        ]}
+        items={TERMS}
       />
     </View>
   );
@@ -73,7 +82,7 @@ const styles = StyleSheet.create({
   },
 });
 
-const picketSelectStyles = StyleSheet.create({
+const pickerSelectStyles = StyleSheet.create({
   inputIOS: {
     fontSize: 16,
     paddingVertical: 12,

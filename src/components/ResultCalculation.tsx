@@ -1,9 +1,21 @@
-import React from 'react';
-import {StyleSheet, Text, View} from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
+import type { LoanQuote } from '../utils/loan';
 
-export default function ResultCalculation(props) {
-  const {capital, interest, months, total, errorMessage} = props;
+type ResultCalculationProps = {
+  capital: string | null;
+  interest: string | null;
+  months: number | null;
+  total: LoanQuote | null;
+  errorMessage: string;
+};
 
+export default function ResultCalculation({
+  capital,
+  interest,
+  months,
+  total,
+  errorMessage,
+}: ResultCalculationProps) {
   return (
     <View style={styles.content}>
       {total && (
@@ -26,9 +38,12 @@ export default function ResultCalculation(props) {
   );
 }
 
-function DataResult(props) {
-  const {title, value} = props;
+type DataResultProps = {
+  title: string;
+  value: string;
+};
 
+function DataResult({ title, value }: DataResultProps) {
   return (
     <View style={styles.value}>
       <Text>{title}</Text>

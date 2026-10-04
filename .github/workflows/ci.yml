@@ -44,6 +44,10 @@ jobs:
       - name: Jest
         run: npx jest --ci
 
+      # The audit script against a fake npm with fixed reports.
+      - name: Tests of scripts/audit-ci.mjs
+        run: npm run test:audit
+
       # Fails on any advisory except GHSA-vfj7-8cjw-p6xm (braces, no patched
       # release exists). The reason is in scripts/audit-ci.mjs and the README.
       - name: npm audit

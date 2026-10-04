@@ -7,7 +7,8 @@
     "ios": "react-native run-ios",
     "lint": "eslint .",
     "start": "react-native start",
-    "test": "jest"
+    "test": "jest",
+    "audit:ci": "node scripts/audit-ci.mjs"
   },
   "dependencies": {
     "@react-native-picker/picker": "^2.11.4",
@@ -38,28 +39,6 @@
     "typescript": "^6.0.3"
   },
   "engines": {
-    "node": ">= 22.11.0"
-  },
-  "resolutions": {
-    "plist": "3.1.0",
-    "browserslist": "4.28.7",
-    "node-releases": "2.0.44",
-    "@tootallnate/once": "^2.0.1",
-    "braces": "^3.0.3",
-    "flatted": "^3.4.2",
-    "lodash": "^4.18.0",
-    "logkitty": "^0.7.1",
-    "micromatch": "^4.0.8",
-    "minimatch": "^3.1.4",
-    "node-fetch": "^2.6.7",
-    "node-notifier": "^8.0.1",
-    "on-headers": "^1.1.0",
-    "picomatch": "^2.3.2",
-    "react-devtools-core": "^4.28.4",
-    "send": "^0.19.0",
-    "serve-static": "^1.16.0",
-    "shell-quote": "^1.9.0",
-    "y18n": "^4.0.1",
-    "**/fbjs-scripts/cross-spawn": "^6.0.6"
+    "node": "^24.3.0"
   }
 }

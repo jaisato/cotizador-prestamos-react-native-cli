@@ -1,0 +1,162 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    # "labeled" is what starts the iOS job: add the "ios" label to a PR.
+    types: [opened, synchronize, reopened, labeled]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # Label events only run the iOS job, so they get a group per label: adding
+  # a label never cancels the js/android run of the last push, nor a running
+  # iOS build. Superseded PR runs are cancelled; runs on master are not.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ github.event.action == 'labeled' && format('label-{0}', github.event.label.name) || 'build' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  js:
+    if: github.event.action != 'labeled'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: TypeScript
+        run: npx tsc --noEmit
+
+      - name: Jest
+        run: npx jest --ci
+
+      # Fails on any advisory except GHSA-vfj7-8cjw-p6xm (braces, no patched
+      # release exists). The reason is in scripts/audit-ci.mjs and the README.
+      - name: npm audit
+        run: npm run audit:ci
+
+      - name: Metro bundle (android)
+        run: |
+          mkdir -p "$RUNNER_TEMP/android"
+          npx react-native bundle --platform android --dev false \
+            --entry-file index.js \
+            --bundle-output "$RUNNER_TEMP/android/index.android.bundle" \
+            --assets-dest "$RUNNER_TEMP/android/res"
+
+      - name: Metro bundle (ios)
+        run: |
+          mkdir -p "$RUNNER_TEMP/ios"
+          npx react-native bundle --platform ios --dev false \
+            --entry-file index.js \
+            --bundle-output "$RUNNER_TEMP/ios/main.jsbundle" \
+            --assets-dest "$RUNNER_TEMP/ios"
+
+  android:
+    if: github.event.action != 'labeled'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      # The Gradle build reads react-native and the autolinked libraries from
+      # node_modules.
+      - run: npm ci
+
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      # Release is signed with the debug keystore, as the template does.
+      - name: Gradle assembleDebug assembleRelease
+        working-directory: android
+        run: ./gradlew assembleDebug assembleRelease --no-daemon
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          archive: false
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          path: android/app/build/outputs/apk/release/app-release.apk
+          archive: false
+          if-no-files-found: error
+
+  ios:
+    # macOS minutes are expensive, so this job only runs when asked: "Run
+    # workflow" (workflow_dispatch) or the "ios" label on a PR. To run it again
+    # on the same PR, remove the label and add it back.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' && github.event.action == 'labeled' &&
+      github.event.label.name == 'ios')
+    runs-on: macos-latest
+    timeout-minutes: 60
+    env:
+      LANG: en_US.UTF-8
+      LC_ALL: en_US.UTF-8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      # bundler-cache runs `bundle install` (Gemfile: CocoaPods) and caches it.
+      - name: Ruby + bundle install
+        uses: ruby/setup-ruby@14594264cd68ce8a2345dd349bc3d138a4ef85c8 # v1.327.0
+        with:
+          ruby-version: '3.3'
+          bundler-cache: true
+
+      - name: pod install
+        working-directory: ios
+        run: bundle exec pod install
+
+      - name: xcodebuild (simulator)
+        working-directory: ios
+        run: >-
+          xcodebuild build -quiet
+          -workspace cotizadorprestamos.xcworkspace
+          -scheme cotizadorprestamos
+          -configuration Debug
+          -sdk iphonesimulator
+          -destination 'generic/platform=iOS Simulator'
+          CODE_SIGNING_ALLOWED=NO
+
+      # Podfile.lock is not versioned yet (there is no Mac to generate it in
+      # the repo); this is the one pod install produced, ready to commit.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          path: ios/Podfile.lock
+          archive: false
+          if-no-files-found: error

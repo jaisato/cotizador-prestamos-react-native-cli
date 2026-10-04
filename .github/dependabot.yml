@@ -1,0 +1,66 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      npm:
+        patterns: ['*']
+    # "ios" starts the iOS workflow on the PR: a native module update changes
+    # ios/Podfile.lock, and that job says so before the merge, not after.
+    labels: [dependencies, javascript, ios]
+    ignore:
+      # A React Native minor (0.87 → 0.88) also changes android/ and ios/, so it
+      # is an upgrade with the template / Upgrade Helper, not a lockfile bump.
+      # Patch releases still come through.
+      - dependency-name: react-native
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
+      - dependency-name: '@react-native/*'
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
+      - dependency-name: '@react-native-community/cli*'
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
+      # react-native ships its renderer for one exact React version, so react
+      # and react-test-renderer only move together with react-native.
+      - dependency-name: react
+      - dependency-name: react-test-renderer
+
+  # CocoaPods and its gems, from Gemfile and Gemfile.lock. The lockfile lists
+  # the x86_64-linux platform so that Dependabot can resolve it.
+  - package-ecosystem: bundler
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      bundler:
+        patterns: ['*']
+    labels: [dependencies, ios]
+    ignore:
+      # The React Native template pins these two; they move with the template,
+      # like React Native minors.
+      - dependency-name: cocoapods
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
+      - dependency-name: xcodeproj
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
+      # cocoapods-core requires activesupport below 8.
+      - dependency-name: activesupport
+        update-types:
+          - version-update:semver-major
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns: ['*']

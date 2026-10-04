@@ -17,6 +17,18 @@ const quote = (capital: LoanInput, interest: LoanInput, months: LoanInput) => {
   return result.quote;
 };
 
+describe('ERROR_MESSAGES', () => {
+  // The texts the app showed in 0.62, copied from master as they were,
+  // spelling included: they are the existing behaviour, not a draft.
+  it('keeps the texts of 0.62', () => {
+    expect(ERROR_MESSAGES).toEqual({
+      capital: 'Añade la cantidad que quieres solicitar',
+      interest: 'Añade el interes del prestamos',
+      months: 'Seleccióna los meses a pagar',
+    });
+  });
+});
+
 describe('calculateLoan', () => {
   describe('normal cases', () => {
     // Reference values: the usual annuity formula, as a spreadsheet's PMT
@@ -142,6 +154,15 @@ describe('calculateLoan', () => {
         });
       },
     );
+
+    // With both missing, the interest comes first: the checks go capital,
+    // interest, term, and only the first message is shown.
+    it('asks for the interest before the term', () => {
+      expect(calculateLoan('1000', '', null)).toEqual({
+        ok: false,
+        error: ERROR_MESSAGES.interest,
+      });
+    });
 
     it.each([[''], [null], [undefined]])(
       'asks for the term when it is %p',

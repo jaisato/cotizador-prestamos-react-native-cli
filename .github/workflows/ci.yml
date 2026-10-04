@@ -69,6 +69,21 @@ jobs:
             --bundle-output "$RUNNER_TEMP/ios/main.jsbundle" \
             --assets-dest "$RUNNER_TEMP/ios"
 
+  # Fails a PR that adds a dependency with a known advisory of any severity,
+  # in every manifest GitHub reads (package-lock.json, Gemfile, Gemfile.lock,
+  # the workflows). npm audit only sees npm; this also covers the gems.
+  dependency-review:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: low
+          # braces has no patched release: see scripts/audit-ci.mjs and the
+          # README.
+          allow-ghsas: GHSA-vfj7-8cjw-p6xm
+
   android:
     if: github.event.action != 'labeled'
     runs-on: ubuntu-latest

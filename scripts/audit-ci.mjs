@@ -4,12 +4,27 @@
 // npm audit has no allowlist of its own and its exit code fails on any
 // advisory, including one that has no fixed release anywhere. This keeps the
 // check strict for everything else, and each exception says why it is there.
-// An exception stops applying as soon as npm can fix the advisory, so a patch
-// published upstream turns the build red until the lockfile picks it up.
 //
-// Exit codes: 0, nothing blocks; 1, some advisory blocks; 2, npm audit failed
-// or printed something this script does not understand. A report it cannot
-// read is never taken as a clean one.
+// An exception only holds while its advisory has no patched version, and the
+// script asks: the GitHub Advisory Database (`gh api /advisories/<id>`) or,
+// when gh cannot answer (not installed, or without a token), the npm registry
+// (`npm view <package> versions`, looking for a release outside the vulnerable
+// range). As soon as there is a patched version the build turns red until the
+// lockfile picks it up and the exception goes. If neither can answer, the
+// script exits with 2: an exception it cannot check is not granted. Neither is
+// one checked against an answer from GitHub in another form: another advisory,
+// or a first_patched_version that is missing or neither null nor a version.
+//
+// npm's fixAvailable is printed but does not decide. For a package that
+// several dependents bring, npm reports the fix of whichever dependent it
+// reaches first, an order that changes from one run to the next (for braces,
+// react-native@0.72.17 in one run and jest@30 in another), and upgrading one
+// dependent does not remove a package that the others still bring.
+//
+// Exit codes: 0, nothing blocks; 1, some advisory blocks; 2, npm audit failed,
+// printed something this script does not understand, or the patch status of
+// an exception could not be read. A report it cannot read is never taken as a
+// clean one.
 
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
@@ -24,9 +39,8 @@ const ALLOWED = new Map([
       reason:
         'braces <= 3.0.3 no tiene ninguna versión corregida. Llega por ' +
         'micromatch, que usan Metro (el empaquetador), la CLI de React ' +
-        'Native y los paquetes de Jest 29 del preset de Jest de React ' +
-        'Native; se ejecuta al construir y en los tests, y no forma parte ' +
-        'del bundle de la app.',
+        'Native y Jest; se ejecuta al construir y en los tests, y no forma ' +
+        'parte del bundle de la app.',
     },
   ],
 ]);
@@ -48,16 +62,20 @@ function isObject(value) {
 // Always the npm on PATH. npm_execpath is whatever package manager started
 // the script (yarn, pnpm and bun set it too), and their audit prints another
 // report. On Windows npm is npm.cmd, which Node only starts through a shell;
-// the command line is fixed, so nothing from outside reaches that shell.
+// the command lines are fixed, so nothing from outside reaches that shell.
 const options = {
   cwd: projectRoot,
   encoding: 'utf8',
   maxBuffer: 64 * 1024 * 1024,
 };
-const audit =
-  process.platform === 'win32'
-    ? spawnSync('npm audit --json', { ...options, shell: true })
-    : spawnSync('npm', ['audit', '--json'], options);
+
+function npm(args) {
+  return process.platform === 'win32'
+    ? spawnSync(['npm', ...args].join(' '), { ...options, shell: true })
+    : spawnSync('npm', args, options);
+}
+
+const audit = npm(['audit', '--json']);
 
 if (audit.error) {
   fail(`No se ha podido ejecutar npm audit: ${audit.error.message}`);
@@ -103,8 +121,9 @@ const entries = Object.entries(vulnerabilities);
 const total = report.metadata?.vulnerabilities?.total;
 if (total !== entries.length) {
   fail(
-    `El informe no cuadra: metadata.vulnerabilities.total es ${JSON.stringify(total)} ` +
-      `y vulnerabilities tiene ${entries.length} paquete(s).`,
+    `El informe no cuadra: metadata.vulnerabilities.total es ${JSON.stringify(
+      total,
+    )} ` + `y vulnerabilities tiene ${entries.length} paquete(s).`,
   );
 }
 
@@ -165,21 +184,205 @@ function compareVersions(a, b) {
 }
 
 /**
- * What npm offers for a vulnerable package, read as "is there a fix".
- * true: `npm audit fix` solves it within the declared ranges. An object:
- * `npm audit fix --force` would install name@version, usually a major
- * change; that is a fix when it moves forward, and fails the exception like
- * any other. When it moves back (for braces npm proposes react-native 0.72.17
- * in place of 0.87.1) it is a downgrade into an older tree, not a patched
- * release, so it does not count. If the installed version cannot be read,
- * the object counts as a fix: in doubt, the build fails.
+ * A range as npm audit writes them ("<=3.0.3", ">=2.0.0 <2.2.3", "a || b"),
+ * as alternatives of comparators; null for any other form.
  */
-function readFix(fixAvailable) {
+function parseRange(range) {
+  if (typeof range !== 'string' || range.trim() === '') {
+    return null;
+  }
+
+  const alternatives = range.split('||').map(alternative =>
+    alternative
+      .trim()
+      .split(/\s+/)
+      .map(comparator => {
+        const match =
+          /^(<=|>=|<|>|=)?v?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/.exec(
+            comparator,
+          );
+        return match ? { operator: match[1] ?? '=', version: match[2] } : null;
+      }),
+  );
+
+  return alternatives.every(
+    comparators => comparators.length > 0 && comparators.every(Boolean),
+  )
+    ? alternatives
+    : null;
+}
+
+function inRange(version, alternatives) {
+  return alternatives.some(comparators =>
+    comparators.every(({ operator, version: bound }) => {
+      const diff = compareVersions(version, bound);
+      switch (operator) {
+        case '<':
+          return diff < 0;
+        case '<=':
+          return diff <= 0;
+        case '>':
+          return diff > 0;
+        case '>=':
+          return diff >= 0;
+        default:
+          return diff === 0;
+      }
+    }),
+  );
+}
+
+/**
+ * GitHub's answer for the advisory `id`: the patched versions of `name` it
+ * lists (first_patched_version), or null while it lists none.
+ *
+ * Only an answer in the expected form counts: the advisory asked for, and for
+ * each entry of the npm package, a first_patched_version that is null or a
+ * version. Anything else (another advisory, the field missing, an object or a
+ * number where the version goes) exits with 2. Read loosely, such an answer
+ * looked like "no patch yet" and granted the exception.
+ */
+function patchedOnGitHub(id, name, output) {
+  let advisory;
+  try {
+    advisory = JSON.parse(output);
+  } catch {
+    fail(`gh api /advisories/${id} no ha devuelto JSON:\n${output}`);
+  }
+
+  if (!isObject(advisory)) {
+    fail(
+      `gh api /advisories/${id} no ha devuelto un aviso: ` +
+        JSON.stringify(advisory).slice(0, 200),
+    );
+  }
+  if (advisory.ghsa_id !== id) {
+    fail(
+      `gh api /advisories/${id} ha devuelto otro aviso (ghsa_id ` +
+        `${JSON.stringify(advisory.ghsa_id)}): no se puede saber si tiene ` +
+        'versión corregida.',
+    );
+  }
+
+  const affected = Array.isArray(advisory.vulnerabilities)
+    ? advisory.vulnerabilities.filter(
+        vulnerability =>
+          vulnerability?.package?.ecosystem === 'npm' &&
+          vulnerability.package.name === name,
+      )
+    : [];
+  if (affected.length === 0) {
+    fail(
+      `El aviso ${id} de la base de datos de GitHub no menciona el paquete ` +
+        `npm ${name}: no se puede saber si tiene versión corregida.`,
+    );
+  }
+
+  for (const vulnerability of affected) {
+    const version = vulnerability.first_patched_version;
+    if (
+      !Object.hasOwn(vulnerability, 'first_patched_version') ||
+      (version !== null && (typeof version !== 'string' || version === ''))
+    ) {
+      fail(
+        `El aviso ${id} de la base de datos de GitHub trae para ${name} un ` +
+          `first_patched_version ${
+            version === undefined ? 'ausente' : JSON.stringify(version)
+          }, y solo se entiende null o una versión: no se puede saber si ` +
+          'tiene versión corregida.',
+      );
+    }
+  }
+
+  const versions = affected
+    .map(vulnerability => vulnerability.first_patched_version)
+    .filter(version => version !== null);
+  return versions.length > 0 ? versions.join(', ') : null;
+}
+
+/**
+ * Whether the advisory `id` has a patched version of `name`, whose vulnerable
+ * range npm reports as `range`: { patched: version or null, source }.
+ */
+function patchStatus(id, name, range) {
+  const gh = spawnSync('gh', ['api', `/advisories/${id}`], options);
+
+  if (!gh.error && gh.status === 0) {
+    return {
+      patched: patchedOnGitHub(id, name, gh.stdout),
+      source: 'la base de datos de avisos de GitHub',
+    };
+  }
+
+  const ghProblem = gh.error
+    ? gh.error.message
+    : (gh.stderr || gh.stdout || `código ${gh.status}`).trim();
+  const view = npm(['view', name, 'versions', '--json']);
+  if (view.error || view.status !== 0) {
+    fail(
+      `No se ha podido saber si ${id} tiene versión corregida: gh api ha ` +
+        `fallado (${ghProblem}) y npm view ${name} versions también ` +
+        `(${
+          (view.error?.message ?? view.stderr ?? '').trim() ||
+          `código ${view.status}`
+        }).`,
+    );
+  }
+
+  let versions;
+  try {
+    versions = JSON.parse(view.stdout);
+  } catch {
+    fail(`npm view ${name} versions no ha devuelto JSON:\n${view.stdout}`);
+  }
+  // With a single version, npm view prints a string instead of a list.
+  if (typeof versions === 'string') {
+    versions = [versions];
+  }
+  if (
+    !Array.isArray(versions) ||
+    versions.length === 0 ||
+    !versions.every(version => typeof version === 'string')
+  ) {
+    fail(`npm view ${name} versions no ha devuelto una lista de versiones.`);
+  }
+
+  const alternatives = parseRange(range);
+  if (!alternatives) {
+    fail(
+      `No se entiende el rango vulnerable ${JSON.stringify(range)} de ${id}.`,
+    );
+  }
+
+  // A release outside the vulnerable range and newer than the oldest
+  // vulnerable one is a version to upgrade to; older ones, before a range
+  // with a lower bound, are not. Pre-releases do not count either.
+  const releases = versions.filter(version => !version.includes('-'));
+  const oldestVulnerable = releases
+    .filter(version => inRange(version, alternatives))
+    .sort(compareVersions)[0];
+  const patched = releases
+    .filter(version => !inRange(version, alternatives))
+    .filter(
+      version =>
+        oldestVulnerable === undefined ||
+        compareVersions(version, oldestVulnerable) > 0,
+    )
+    .sort(compareVersions)[0];
+
+  return {
+    patched: patched ?? null,
+    source: `npm view ${name} versions`,
+  };
+}
+
+/** What npm offers for a vulnerable package, to print it; it decides nothing. */
+function describeFix(fixAvailable) {
   if (fixAvailable === true) {
-    return { fix: 'npm audit fix' };
+    return 'npm audit fix';
   }
   if (fixAvailable === false) {
-    return {};
+    return null;
   }
 
   const { name, version, isSemVerMajor } = fixAvailable;
@@ -187,13 +390,11 @@ function readFix(fixAvailable) {
   const target = `${name}@${version}`;
 
   if (installed !== null && compareVersions(version, installed) < 0) {
-    return { downgrade: `${target} (instalado: ${installed})` };
+    return `${target} (instalado: ${installed}), que es bajar de versión`;
   }
-  return {
-    fix: `npm audit fix --force, que instala ${target}${
-      isSemVerMajor ? ' (cambio mayor)' : ''
-    }`,
-  };
+  return `npm audit fix --force, que instala ${target}${
+    isSemVerMajor ? ' (cambio mayor)' : ''
+  }`;
 }
 
 // Each package lists the advisories that hit it directly as objects in `via`;
@@ -214,18 +415,16 @@ for (const [, vulnerability] of entries) {
       url: via.url,
       packages: new Set(),
       names: new Set(),
+      ranges: new Map(),
       fixes: new Set(),
-      downgrades: new Set(),
     };
 
     advisory.packages.add(`${via.name}@${via.range}`);
     advisory.names.add(via.name);
-    const { fix, downgrade } = readFix(vulnerability.fixAvailable);
+    advisory.ranges.set(via.name, via.range);
+    const fix = describeFix(vulnerability.fixAvailable);
     if (fix) {
       advisory.fixes.add(fix);
-    }
-    if (downgrade) {
-      advisory.downgrades.add(downgrade);
     }
     advisories.set(id, advisory);
   }
@@ -248,26 +447,40 @@ for (const advisory of advisories.values()) {
   if (!allowed) {
     console.log(`  BLOQUEA    ${line}\n             ${advisory.url}`);
     blocking.push(advisory);
-  } else if (others.length > 0) {
+    continue;
+  }
+  if (others.length > 0) {
     console.log(
       `  BLOQUEA    ${line}\n             La excepción solo cubre ${allowed.package}, ` +
         `y el aviso afecta también a ${others.join(', ')}.`,
     );
     blocking.push(advisory);
-  } else if (advisory.fixes.size > 0) {
+    continue;
+  }
+
+  const { patched, source } = patchStatus(
+    advisory.id,
+    allowed.package,
+    advisory.ranges.get(allowed.package),
+  );
+  if (patched) {
     console.log(
-      `  BLOQUEA    ${line}\n             Ya tiene arreglo (${[
-        ...advisory.fixes,
-      ].join('; ')}): actualiza y quita la excepción.`,
+      `  BLOQUEA    ${line}\n             Ya tiene versión corregida: ` +
+        `${allowed.package} ${patched}, según ${source}. Actualiza y quita la excepción.`,
     );
     blocking.push(advisory);
-  } else {
-    console.log(`  permitido  ${line}\n             ${allowed.reason}`);
-    for (const downgrade of advisory.downgrades) {
-      console.log(
-        `             npm propone ${downgrade}: es bajar de versión, no un arreglo.`,
-      );
-    }
+    continue;
+  }
+
+  console.log(
+    `  permitido  ${line}\n             ${allowed.reason}\n` +
+      `             Sin versión corregida, según ${source}.`,
+  );
+  for (const fix of advisory.fixes) {
+    console.log(
+      `             npm propone ${fix}. No cuenta: lo que decide es si ` +
+        `${allowed.package} tiene versión corregida.`,
+    );
   }
 }
 

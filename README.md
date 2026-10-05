@@ -75,24 +75,24 @@ parche como artefacto.
 ```sh
 npm run lint
 npx tsc --noEmit
-npm test             # Jest: el cálculo, la pantalla y la maquetación por plataforma
-npm run test:audit   # el script de auditoría, con un npm falso
+npm test               # Jest: el cálculo, la pantalla y la maquetación por plataforma
+npm run test:scripts   # el script de auditoría, con un npm y un gh falsos
 npm run audit:ci
 ```
 
-`npm test` es Jest 30 con el preset `@react-native/jest-preset` 0.87.1, y solo
-recoge `__tests__/`: `scripts/audit-ci.test.mjs` es de `node --test`. El
-preset sigue dependiendo de `babel-jest` y `jest-environment-node` 29. Jest 30
-transforma con su propio `babel-jest`, y los tests corren en el entorno del
-preset, que se apoya en `jest-environment-node` 29.
+`npm test` es Jest 29, el de la plantilla de React Native 0.87, con el preset
+`@react-native/jest-preset` 0.87.1, que trae `babel-jest` y
+`jest-environment-node` 29. Jest 30 con ese preset sería una combinación sin
+soporte. `scripts/audit-ci.test.mjs` es de `node --test`, y Jest 29 no recoge
+los `.mjs`.
 
 ## CI
 
 `.github/workflows/ci.yml` se ejecuta en cada PR y en cada push a `master`:
 
-- `js`: lint, TypeScript, Jest, los tests del script de auditoría, la
-  auditoría y los bundles de Metro de Android e iOS (`react-native bundle
-  --dev false`).
+- `js`: lint, TypeScript, Jest, los tests de `scripts/`, la auditoría (con el
+  token del job, para preguntar a GitHub por el aviso de braces) y los
+  bundles de Metro de Android e iOS (`react-native bundle --dev false`).
 - `dependency-review`, solo en las PR: compara el grafo de dependencias de la
   PR con el de `master` en todos los manifiestos que lee GitHub
   (`package-lock.json`, `Gemfile`, `Gemfile.lock`, las acciones) y falla con
@@ -289,40 +289,46 @@ denegación de servicio en `braces` <= 3.0.3 con patrones muy anidados.
 - No hay versión corregida: 3.0.3 es la última publicada, así que no hay nada a
   lo que actualizar ni que forzar con `overrides`.
 - Llega por `micromatch`, que usan Metro (el empaquetador, dependencia de
-  `react-native`), la CLI de React Native y los paquetes de Jest 29 que trae
-  `@react-native/jest-preset`. Se ejecuta al construir y en los tests, con
-  patrones del propio proyecto, y no entra en el bundle de la app.
+  `react-native`), la CLI de React Native y Jest. Se ejecuta al construir y en
+  los tests, con patrones del propio proyecto, y no entra en el bundle de la
+  app.
 - La excepción vale solo para el paquete `braces`: si el mismo aviso alcanza a
   otro, el script falla.
-- Caduca sola. Si `npm audit fix` puede corregirlo, o `npm audit fix --force`
-  lo corrige subiendo una versión, el script falla y pide actualizar y quitar
-  la excepción. Hoy `npm audit fix --force` propone instalar
-  `react-native@0.72.17`; eso es bajar desde 0.87.1, no un parche, así que el
-  script lo muestra pero no lo cuenta como arreglo. Si el aviso deja de
-  aparecer, avisa para borrar la excepción.
+- **Caduca sola, en cuanto braces tenga versión corregida.** El script lo
+  pregunta en cada ejecución: a la base de datos de avisos de GitHub
+  (`gh api /advisories/GHSA-vfj7-8cjw-p6xm`, el `first_patched_version` de
+  braces) y, si `gh` no responde (no está instalado o no tiene token), al
+  registro de npm (`npm view braces versions --json`: cualquier versión
+  publicada fuera del rango vulnerable, `<=3.0.3`, cuenta como corregida; las
+  prerrelease no). Con versión corregida, el script falla y pide actualizar y
+  quitar la excepción. Si no puede preguntar a ninguno de los dos, sale con
+  código 2: una excepción que no puede comprobar no la concede. Tampoco con
+  una respuesta de GitHub en otra forma: la de otro aviso, o un
+  `first_patched_version` ausente o que no sea `null` ni una versión (un
+  objeto, un número). En el CI pregunta con el token del job (`GH_TOKEN`).
+- El `fixAvailable` de `npm audit` no decide nada. El script lo muestra, pero
+  para braces npm propone el arreglo de la primera dependencia de primer nivel
+  que lo arrastra, y ese orden cambia de una ejecución a otra: en 26
+  ejecuciones seguidas propuso 24 veces instalar `react-native@0.72.17`, una
+  `@react-native-community/cli-platform-android@15.1.0` (las dos, bajadas) y
+  una `jest@30.5.2`, y el script salió con 0 las 26. Y aunque fuera una
+  subida, actualizar esa dependencia no quitaría el braces que traen las
+  demás.
+- Si el aviso deja de aparecer, el script avisa para borrar la excepción.
 - Una salida de `npm audit` que el script no entiende (un error, otro formato
   de informe o un total que no cuadra) sale con código 2, nunca como un
-  informe limpio. `npm run test:audit` lo prueba con un npm falso.
+  informe limpio. `npm run test:scripts` lo prueba con un npm y un `gh` falsos,
+  como los casos con y sin versión corregida y las consultas que fallan.
+- Jest va en la 29, la de la plantilla: `@react-native/jest-preset` 0.87.1
+  trae `babel-jest` y `jest-environment-node` 29, y con Jest 30 sería una
+  combinación sin soporte. El proyecto pasó por Jest 30 mientras la regla
+  anterior decidía por el `fixAvailable` y contaba la propuesta de
+  `jest@30.5.2` como arreglo; con la de ahora eso ya no importa: lo que decide
+  es si braces tiene versión corregida. `npm audit` cuenta 48 paquetes
+  afectados, todos por braces.
 - El job `dependency-review` del CI tiene la misma excepción (`allow-ghsas`),
   para el grafo de dependencias de GitHub.
-
-npm calcula el `fixAvailable` de braces a partir de las dependencias de primer
-nivel que llevan hasta él, y el resultado depende del orden en que las
-procesa, que cambia de una ejecución a otra. Con Jest 29, `jest` y
-`@types/jest` estaban entre ellas y tenían un arreglo de verdad, porque Jest 30
-ya no usa micromatch: a veces npm proponía `jest@30.5.2` en vez de
-`react-native@0.72.17`, el script lo contaba como arreglo y el CI podía fallar
-sin que nada hubiera cambiado. Por eso el proyecto usa Jest 30 y `@types/jest`
-30. Las ramas que quedan (`react-native`, `@react-native/metro-config`,
-`@react-native-community/cli` y sus plataformas, y `@react-native/jest-preset`)
-solo proponen bajar de versión o nada, y el resultado ya no depende del orden.
 
 Fuera de braces, `npm audit` no informa de nada, así que no hay `overrides`. Si
 algún día hace falta uno, debe quedarse dentro de la misma versión mayor y
 explicarse en esta sección.
-
-`package.json` deniega en `allowScripts` los dos scripts de instalación que
-trae Jest 30, que npm 11 ya bloquea por defecto y que no hacen falta:
-`@parcel/watcher` (solo compila desde el código fuente si se le pide) y
-`unrs-resolver` (solo descarga su binario si falta; `package-lock.json` ya trae
-el de cada plataforma). Así `npm ci` no avisa de ellos.

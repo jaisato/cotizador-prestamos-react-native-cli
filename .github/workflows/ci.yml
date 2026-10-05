@@ -41,13 +41,18 @@ jobs:
       - name: Jest
         run: npx jest --ci
 
-      # The audit script against a fake npm with fixed reports.
-      - name: Tests of scripts/audit-ci.mjs
-        run: npm run test:audit
+      # The tests of scripts/. They never reach the registry or GitHub: npm and
+      # gh are fakes.
+      - name: Tests of scripts/
+        run: npm run test:scripts
 
-      # Fails on any advisory except GHSA-vfj7-8cjw-p6xm (braces, no patched
-      # release exists). The reason is in scripts/audit-ci.mjs and the README.
+      # Fails on any advisory except GHSA-vfj7-8cjw-p6xm (braces), and on that
+      # one as soon as it has a patched version, which the script asks the
+      # GitHub Advisory Database (with the token) or the npm registry. The
+      # reason is in scripts/audit-ci.mjs and the README.
       - name: npm audit
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: npm run audit:ci
 
       - name: Metro bundle (android)

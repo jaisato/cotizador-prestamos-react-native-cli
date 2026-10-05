@@ -151,6 +151,16 @@ para Bundler (las gemas de CocoaPods) y otra para las acciones de GitHub:
   [Upgrade Helper](https://react-native-community.github.io/upgrade-helper/).
   Tampoco versiones de `react` y `react-test-renderer`, que solo se mueven con
   React Native.
+- Tampoco majors de las herramientas de la plantilla: Babel (`@babel/*`),
+  ESLint (`eslint`, `eslint-*` y `@eslint/*`), Prettier, Jest (`jest`,
+  `jest-*`, `babel-jest` y `@types/jest`), TypeScript, `@types/react` y
+  `@types/react-test-renderer`. Cada plantilla fija las que admiten sus
+  propios paquetes (`@react-native/eslint-config` 0.87.1 acepta ESLint 8 o
+  9, y `@react-native/jest-preset` 0.87.1 trae `babel-jest` 29), y llegan con
+  la actualización de React Native (la plantilla nueva y el Upgrade Helper),
+  no por separado. Las minors y los parches sí llegan.
+  Lo mismo vale para `@types/node`, que sigue a la Node de `.nvmrc`, si
+  algún día entra en el proyecto.
 - Por lo mismo, `cocoapods` y `xcodeproj`, que fija la plantilla, solo reciben
   parches, y `activesupport` no pasa de la 7, porque cocoapods-core lo limita
   a menos de la 8.

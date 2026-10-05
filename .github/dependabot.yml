@@ -30,6 +30,54 @@ updates:
       # and react-test-renderer only move together with react-native.
       - dependency-name: react
       - dependency-name: react-test-renderer
+      # The template's tooling moves with React Native too. Each template
+      # sets the majors of Babel, ESLint, Prettier, Jest and TypeScript, and
+      # of the types of React and Jest, that its own packages accept:
+      # @react-native/eslint-config 0.87.1 takes ESLint 8 or 9, and
+      # @react-native/jest-preset 0.87.1 brings babel-jest 29. Those majors
+      # arrive with the React Native upgrade (the new template and the
+      # Upgrade Helper), not one by one. Minor and patch releases still come
+      # through.
+      - dependency-name: '@babel/*'
+        update-types:
+          - version-update:semver-major
+      - dependency-name: eslint
+        update-types:
+          - version-update:semver-major
+      - dependency-name: 'eslint-*'
+        update-types:
+          - version-update:semver-major
+      - dependency-name: '@eslint/*'
+        update-types:
+          - version-update:semver-major
+      - dependency-name: prettier
+        update-types:
+          - version-update:semver-major
+      - dependency-name: jest
+        update-types:
+          - version-update:semver-major
+      - dependency-name: 'jest-*'
+        update-types:
+          - version-update:semver-major
+      - dependency-name: babel-jest
+        update-types:
+          - version-update:semver-major
+      - dependency-name: '@types/jest'
+        update-types:
+          - version-update:semver-major
+      - dependency-name: typescript
+        update-types:
+          - version-update:semver-major
+      - dependency-name: '@types/react'
+        update-types:
+          - version-update:semver-major
+      - dependency-name: '@types/react-test-renderer'
+        update-types:
+          - version-update:semver-major
+      # @types/node follows the Node of .nvmrc.
+      - dependency-name: '@types/node'
+        update-types:
+          - version-update:semver-major
 
   # CocoaPods and its gems, from Gemfile and Gemfile.lock. The lockfile lists
   # the x86_64-linux platform so that Dependabot can resolve it.

@@ -110,6 +110,28 @@ test('quotes the loan as the user types, without pressing CALCULAR', async () =>
   ]);
 });
 
+test('reads the amount with a thousands separator', async () => {
+  const renderer = await renderApp();
+
+  await type(renderer, 'Cantidad a pedir', '1.200');
+  await type(renderer, 'Interes %', '0');
+  await pickTerm(renderer, 12);
+
+  expect(summary(renderer)).toEqual([
+    'RESUMEN',
+    'Cantidad solicitada:',
+    '1.200 €',
+    'Interes %:',
+    '0 %',
+    'Plazos:',
+    '12 meses',
+    'Pago mensual:',
+    '100,00 €',
+    'Total a pagar:',
+    '1200,00 €',
+  ]);
+});
+
 test('CALCULAR shows the message of the first empty field', async () => {
   const renderer = await renderApp();
 

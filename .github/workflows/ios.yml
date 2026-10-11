@@ -1,0 +1,143 @@
+name: iOS
+
+on:
+  # The "ios" label on a PR starts this workflow. To run it again on the same
+  # PR, remove the label and add it back. Other labels start it too, but the
+  # job skips.
+  pull_request:
+    types: [labeled]
+  workflow_dispatch:
+  # After a merge that can change what pod install generates.
+  push:
+    branches: [master]
+    paths:
+      - 'ios/**'
+      - 'package-lock.json'
+      - 'Gemfile*'
+      - '.github/workflows/ios.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  # One group per PR and label: another label never cancels an iOS build,
+  # and adding "ios" again cancels the previous build of that PR.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ github.event.label.name || 'run' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  ios:
+    if: github.event_name != 'pull_request' || github.event.label.name == 'ios'
+    runs-on: macos-latest
+    timeout-minutes: 60
+    env:
+      LANG: en_US.UTF-8
+      LC_ALL: en_US.UTF-8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      # bundler-cache runs `bundle install` from Gemfile.lock, frozen, and
+      # caches the gems. Without a Gemfile.lock it generates one first.
+      - name: Ruby + bundle install
+        uses: ruby/setup-ruby@14594264cd68ce8a2345dd349bc3d138a4ef85c8 # v1.327.0
+        with:
+          ruby-version: '3.3'
+          bundler-cache: true
+
+      # .bundle/config forces the generic ruby platform; Dependabot resolves
+      # Gemfile.lock on Linux, so it lists x86_64-linux as well. When the
+      # platform is already there this changes nothing.
+      - name: Gemfile.lock platforms
+        run: bundle lock --add-platform x86_64-linux
+
+      # What `npm run ios -- --force-pods` does before building: Codegen,
+      # bundle install and pod install. Calling pod install directly is
+      # deprecated in React Native 0.87.
+      - name: Codegen + pod install
+        run: npx react-native build-ios --only-pods
+
+      # Everything pod install changed in versioned files (Podfile.lock, the
+      # workspace, project.pbxproj, PrivacyInfo.xcprivacy) and Gemfile.lock,
+      # as a patch to apply with `git apply --index`. The last step fails if
+      # there is any.
+      - name: Changes made by pod install
+        id: pods
+        run: |
+          git add -A ios Gemfile.lock
+          git diff --cached --binary > "$RUNNER_TEMP/ios-pod-install.patch"
+          git diff --cached --stat
+          if [ -s "$RUNNER_TEMP/ios-pod-install.patch" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.pods.outputs.changed == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          path: ${{ runner.temp }}/ios-pod-install.patch
+          archive: false
+          if-no-files-found: error
+
+      - name: xcodebuild Debug (simulator)
+        working-directory: ios
+        run: >-
+          xcodebuild build -quiet
+          -workspace cotizadorprestamos.xcworkspace
+          -scheme cotizadorprestamos
+          -configuration Debug
+          -sdk iphonesimulator
+          -destination 'generic/platform=iOS Simulator'
+          -derivedDataPath "$RUNNER_TEMP/DerivedData"
+          CODE_SIGNING_ALLOWED=NO
+
+      # Debug builds for the simulator load the JS from Metro; Release
+      # bundles it, compiles it to Hermes bytecode and ships it in the app.
+      - name: xcodebuild Release (simulator)
+        working-directory: ios
+        run: >-
+          xcodebuild build -quiet
+          -workspace cotizadorprestamos.xcworkspace
+          -scheme cotizadorprestamos
+          -configuration Release
+          -sdk iphonesimulator
+          -destination 'generic/platform=iOS Simulator'
+          -derivedDataPath "$RUNNER_TEMP/DerivedData"
+          CODE_SIGNING_ALLOWED=NO
+
+      # The bundle is in the app as Hermes bytecode, the privacy manifest is
+      # a resource, and the app is for iPhone only, in portrait.
+      - name: Check the Release app
+        run: |
+          app="$RUNNER_TEMP/DerivedData/Build/Products/Release-iphonesimulator/cotizadorprestamos.app"
+          fail() { echo "::error::$1"; exit 1; }
+
+          [ -s "$app/main.jsbundle" ] || fail "main.jsbundle is not in the app"
+          magic=$(xxd -p -l 8 "$app/main.jsbundle")
+          echo "main.jsbundle: $(stat -f %z "$app/main.jsbundle") bytes, starts with $magic"
+          [ "$magic" = c61fbc03c103191f ] || fail "main.jsbundle is not Hermes bytecode"
+
+          [ -f "$app/PrivacyInfo.xcprivacy" ] || fail "PrivacyInfo.xcprivacy is not in the app"
+
+          family=$(plutil -extract UIDeviceFamily json -o - "$app/Info.plist")
+          orientations=$(plutil -extract UISupportedInterfaceOrientations json -o - "$app/Info.plist")
+          echo "UIDeviceFamily $family, UISupportedInterfaceOrientations $orientations"
+          [ "$family" = '[1]' ] || fail "UIDeviceFamily is $family, not iPhone only"
+          [ "$orientations" = '["UIInterfaceOrientationPortrait"]' ] || fail "orientations: $orientations"
+          if plutil -extract 'UISupportedInterfaceOrientations~ipad' raw "$app/Info.plist" > /dev/null 2>&1; then
+            fail "Info.plist still has UISupportedInterfaceOrientations~ipad"
+          fi
+
+      - name: Versioned files match pod install
+        run: |
+          if ! git diff --cached --exit-code --stat -- ios Gemfile.lock; then
+            echo "::error::pod install changed versioned files. Apply the ios-pod-install.patch artifact of this run with 'git apply --index' and commit it."
+            exit 1
+          fi

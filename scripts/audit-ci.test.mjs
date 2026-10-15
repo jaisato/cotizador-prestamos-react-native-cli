@@ -816,6 +816,7 @@ test('prints what it allows and why', { skip }, () => {
       '             braces <= 3.0.3 no tiene ninguna versión corregida. Llega por micromatch, que usan Metro (el empaquetador), la CLI de React Native y Jest; se ejecuta al construir y en los tests, y no forma parte del bundle de la app.\n' +
       '             Sin versión corregida, según la base de datos de avisos de GitHub.\n' +
       '             npm propone react-native@0.72.17 (instalado: 0.87.1), que es bajar de versión. No cuenta: lo que decide es si braces tiene versión corregida.\n' +
+      '  aviso: GHSA-hp3w-g68c-fv3c ya no aparece; quita la excepción de scripts/audit-ci.mjs.\n' +
       '\n' +
       'OK: ningún aviso fuera de las excepciones.\n',
   );

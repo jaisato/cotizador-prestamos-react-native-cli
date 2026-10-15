@@ -43,6 +43,17 @@ const ALLOWED = new Map([
         'parte del bundle de la app.',
     },
   ],
+  [
+    'GHSA-hp3w-g68c-fv3c',
+    {
+      package: 'sprintf-js',
+      reason:
+        'sprintf-js <= 1.1.3 no tiene ninguna versión corregida. Llega por ' +
+        'argparse 1 y js-yaml 3, que usa @istanbuljs/load-nyc-config (la ' +
+        'cobertura de Jest); se ejecuta solo en los tests y no forma parte ' +
+        'del bundle de la app.',
+    },
+  ],
 ]);
 
 const projectRoot = fileURLToPath(new URL('..', import.meta.url));

@@ -339,6 +339,14 @@ denegación de servicio en `braces` <= 3.0.3 con patrones muy anidados.
 - El job `dependency-review` del CI tiene la misma excepción (`allow-ghsas`),
   para el grafo de dependencias de GitHub.
 
-Fuera de braces, `npm audit` no informa de nada, así que no hay `overrides`. Si
-algún día hace falta uno, debe quedarse dentro de la misma versión mayor y
+Fuera de braces, el único `overrides` es `js-yaml` `^4.1.1` dentro de
+`@istanbuljs/load-nyc-config` (lo trae `babel-plugin-istanbul` 6, de
+`babel-jest` 29). Su `js-yaml` 3 arrastraba `argparse` 1 y `sprintf-js`
+1.0.3, con [GHSA-hp3w-g68c-fv3c](https://github.com/advisories/GHSA-hp3w-g68c-fv3c)
+(moderada) y sin versión corregida, y `npm run audit:ci` fallaba. Es la única
+excepción a la regla de la versión mayor: el paquete solo llama a
+`yaml.load()` para leer un `.nycrc.yaml` (que el proyecto no tiene), y en
+`js-yaml` 4 esa función existe igual y además es la segura por defecto. Cuando
+Jest deje `babel-plugin-istanbul` 6, sobra. Si algún día hace falta otro, debe
+quedarse dentro de la misma versión mayor (o justificar aquí por qué no) y
 explicarse en esta sección.

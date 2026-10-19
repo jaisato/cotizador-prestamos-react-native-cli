@@ -54,6 +54,35 @@ export function toNumber(value: LoanInput): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+// "1.000", "25.000", "1.250.000" and "1.500,50": digits grouped in threes by
+// dots, the first group without a leading zero, optionally followed by a
+// decimal comma (with or without its cents yet) - the Spanish way of writing
+// an amount.
+const GROUPED_AMOUNT = /^[1-9]\d{0,2}(\.\d{3})+(,\d*)?$/;
+
+/**
+ * Reads the capital, in euros.
+ *
+ * In Spanish the dot groups thousands, so a user asking for a thousand euros
+ * types "1.000". toNumber reads that as 1: the summary showed "Cantidad
+ * solicitada: 1.000 €" next to the fees of a one-euro loan, and "1.500,50"
+ * was rejected as not a number. An amount of euros never has three decimals,
+ * so dots in that grouped shape are thousands separators. Anything else
+ * ("1500", "1500,50", "1500.5") is read as toNumber reads it. The interest
+ * keeps toNumber: a rate is never written with thousands.
+ */
+export function toAmount(value: LoanInput): number | null {
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+
+    if (GROUPED_AMOUNT.test(trimmed)) {
+      return toNumber(trimmed.replace(/\./g, ''));
+    }
+  }
+
+  return toNumber(value);
+}
+
 /**
  * Monthly fee for `capital` at `ratePercent` per month over `months` months.
  * Expects already validated numbers: capital and months above zero, rate zero
@@ -99,7 +128,7 @@ export function calculateLoan(
   interest: LoanInput,
   months: LoanInput,
 ): LoanResult {
-  const amount = toNumber(capital);
+  const amount = toAmount(capital);
   const rate = toNumber(interest);
   const term = toNumber(months);
 

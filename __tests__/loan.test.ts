@@ -3,6 +3,7 @@ import {
   ERROR_MESSAGES,
   formatAmount,
   monthlyFee,
+  toAmount,
   toNumber,
   type LoanInput,
 } from '../src/utils/loan';
@@ -51,6 +52,28 @@ describe('calculateLoan', () => {
 
     it('reads a decimal comma and surrounding spaces', () => {
       expect(quote(' 1000 ', '1,5', '12')).toEqual(quote('1000', '1.5', 12));
+    });
+  });
+
+  // In Spanish the dot groups thousands: a thousand euros is typed "1.000".
+  describe('thousands separator in the capital', () => {
+    it('reads "1.000" as a thousand euros', () => {
+      expect(quote('1.000', '1', 12)).toEqual({
+        monthlyFee: '88,85',
+        totalPayable: '1066,19',
+      });
+    });
+
+    it('reads "1.500,50" with its cents', () => {
+      expect(quote('1.500,50', '0', 12)).toEqual({
+        monthlyFee: '125,04',
+        totalPayable: '1500,50',
+      });
+    });
+
+    // A rate is never written with thousands: "1.500" % is one and a half.
+    it('keeps the plain reading for the interest', () => {
+      expect(quote('1000', '1.500', 12)).toEqual(quote('1000', '1,5', 12));
     });
   });
 
@@ -203,6 +226,44 @@ describe('toNumber', () => {
       expect(toNumber(value)).toBeNull();
     },
   );
+});
+
+describe('toAmount', () => {
+  it.each([
+    // Dots that group digits in threes are thousands separators.
+    ['1.000', 1000],
+    ['25.000', 25000],
+    ['1.250.000', 1250000],
+    ['1.500,50', 1500.5],
+    // Half typed: the comma is there, the cents are not yet.
+    ['1.000,', 1000],
+    [' 2.000 ', 2000],
+    // Anything else is read as toNumber reads it.
+    ['1500', 1500],
+    ['1500,50', 1500.5],
+    ['1500.5', 1500.5],
+    ['1.5', 1.5],
+    ['1.50', 1.5],
+    ['1.0000', 1],
+    // A number written with separators never starts with 0.
+    ['0.500', 0.5],
+    ['1e3', 1000],
+    [1000, 1000],
+  ])('reads %p as %p', (value, expected) => {
+    expect(toAmount(value)).toBe(expected);
+  });
+
+  it.each([
+    [null],
+    [undefined],
+    [''],
+    ['  '],
+    ['1.000.0'],
+    ['1..000'],
+    ['abc'],
+  ])('returns null for %p', value => {
+    expect(toAmount(value)).toBeNull();
+  });
 });
 
 describe('monthlyFee', () => {

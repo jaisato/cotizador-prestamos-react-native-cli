@@ -3,6 +3,7 @@ import {
   ERROR_MESSAGES,
   formatAmount,
   monthlyFee,
+  OUT_OF_RANGE_MESSAGE,
   toAmount,
   toNumber,
   type LoanInput,
@@ -157,6 +158,31 @@ describe('calculateLoan', () => {
     );
   });
 
+  describe('totals the summary cannot write', () => {
+    // toFixed prints 1e21 and above in exponent notation, and the product can
+    // overflow: the summary read "1,3539049202497846e+21 €" or "Infinity €".
+    it.each([
+      ['1000000000000000000000', '5', 12],
+      ['1e308', '100', 24],
+      ['1000', '1e300', 3],
+    ])(
+      'rejects capital %s at %s %% over %i months',
+      (capital, interest, months) => {
+        expect(calculateLoan(capital, interest, months)).toEqual({
+          ok: false,
+          error: OUT_OF_RANGE_MESSAGE,
+        });
+      },
+    );
+
+    it('still quotes a total just below the limit', () => {
+      expect(quote('900000000000000000000', '0', 1)).toEqual({
+        monthlyFee: '900000000000000000000,00',
+        totalPayable: '900000000000000000000,00',
+      });
+    });
+  });
+
   describe('empty inputs', () => {
     it.each([[''], ['   '], [null], [undefined]])(
       'asks for the capital first when it is %p',
@@ -216,16 +242,29 @@ describe('toNumber', () => {
     [24, 24],
     ['0', 0],
     ['1e3', 1000],
+    ['.5', 0.5],
+    ['5.', 5],
+    ['+2', 2],
   ])('reads %p as %p', (value, expected) => {
     expect(toNumber(value)).toBe(expected);
   });
 
-  it.each([[null], [undefined], [''], ['  '], ['NaN'], ['Infinity']])(
-    'returns null for %p',
-    value => {
-      expect(toNumber(value)).toBeNull();
-    },
-  );
+  it.each([
+    [null],
+    [undefined],
+    [''],
+    ['  '],
+    ['NaN'],
+    ['Infinity'],
+    // Number() reads these as 16, 3 and 7.
+    ['0x10'],
+    ['0b11'],
+    ['0o7'],
+    ['1e'],
+    ['-'],
+  ])('returns null for %p', value => {
+    expect(toNumber(value)).toBeNull();
+  });
 });
 
 describe('toAmount', () => {
@@ -261,6 +300,7 @@ describe('toAmount', () => {
     ['1.000.0'],
     ['1..000'],
     ['abc'],
+    ['0x3E8'],
   ])('returns null for %p', value => {
     expect(toAmount(value)).toBeNull();
   });

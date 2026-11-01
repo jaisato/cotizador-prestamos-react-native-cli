@@ -46,10 +46,11 @@ jobs:
       - name: Tests of scripts/
         run: npm run test:scripts
 
-      # Fails on any advisory except GHSA-vfj7-8cjw-p6xm (braces), and on that
-      # one as soon as it has a patched version, which the script asks the
-      # GitHub Advisory Database (with the token) or the npm registry. The
-      # reason is in scripts/audit-ci.mjs and the README.
+      # Fails on any advisory except those in scripts/audit-ci.allowed.mjs
+      # (deepmerge, minimatch), and on each of them as soon as it has a patch
+      # that an install can reach, which the script checks against the GitHub
+      # Advisory Database (with the token), the npm registry and the lockfile.
+      # The reasons are in that file and the README.
       - name: npm audit
         env:
           GH_TOKEN: ${{ github.token }}
@@ -82,9 +83,9 @@ jobs:
       - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
         with:
           fail-on-severity: low
-          # braces has no patched release: see scripts/audit-ci.mjs and the
-          # README.
-          allow-ghsas: GHSA-vfj7-8cjw-p6xm
+          # The same exceptions as npm run audit:ci: see
+          # scripts/audit-ci.allowed.mjs and the README.
+          allow-ghsas: GHSA-gcqx-w48m-w2h4, GHSA-g3hv-75wg-m249
 
   android:
     runs-on: ubuntu-latest

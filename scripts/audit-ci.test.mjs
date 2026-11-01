@@ -28,6 +28,50 @@ const skip = process.platform === 'win32' && 'the fakes are shell scripts';
 
 const GHSA = 'GHSA-vfj7-8cjw-p6xm';
 
+/** The exception list the script reads, as scripts/audit-ci.allowed.mjs. */
+function allowedModule(entries) {
+  return `export const ALLOWED = new Map(${JSON.stringify(entries)});\n`;
+}
+
+/** The braces exception, as it was until the advisory stopped showing up. */
+const BRACES_ALLOWED = allowedModule([
+  [
+    GHSA,
+    {
+      package: 'braces',
+      reason:
+        'braces <= 3.0.3 no tiene ninguna versión corregida. Llega por ' +
+        'micromatch, que usan Metro (el empaquetador), la CLI de React ' +
+        'Native y Jest; se ejecuta al construir y en los tests, y no forma ' +
+        'parte del bundle de la app.',
+    },
+  ],
+]);
+
+/** The same exception with the patch declared out of reach of its dependents. */
+const BRACES_OUT_OF_REACH = allowedModule([
+  [
+    GHSA,
+    {
+      package: 'braces',
+      patchOutOfReach: true,
+      reason: 'braces solo está corregido en un major que nadie pide.',
+    },
+  ],
+]);
+
+/** A lockfile where micromatch and jest-haste-map pin braces to 3.x. */
+function dependents(...ranges) {
+  const packages = { 'node_modules/braces': { version: '3.0.3' } };
+  ranges.forEach((range, index) => {
+    packages[`node_modules/dependent-${index + 1}`] = {
+      version: '1.0.0',
+      dependencies: { braces: range },
+    };
+  });
+  return { lockfileVersion: 3, packages };
+}
+
 const LOCKFILE = {
   lockfileVersion: 3,
   packages: {
@@ -156,6 +200,7 @@ function text(output) {
  * - `gh`: what `gh api /advisories/<id>` prints, or null to make it fail as it
  *   does without a token.
  * - `npm: false`: a PATH with no npm at all.
+ * - `allowed`: the source of scripts/audit-ci.allowed.mjs the script reads.
  */
 function runAudit(
   output,
@@ -165,6 +210,7 @@ function runAudit(
     npm: withNpm = true,
     versions = VERSIONS,
     gh = advisory(),
+    allowed = BRACES_ALLOWED,
   } = {},
 ) {
   const dir = mkdtempSync(join(tmpdir(), 'audit-ci-'));
@@ -173,6 +219,7 @@ function runAudit(
     mkdirSync(join(dir, 'scripts'));
     mkdirSync(join(dir, 'bin'));
     copyFileSync(script, join(dir, 'scripts', 'audit-ci.mjs'));
+    writeFileSync(join(dir, 'scripts', 'audit-ci.allowed.mjs'), allowed);
     if (lockfile) {
       writeFileSync(join(dir, 'package-lock.json'), JSON.stringify(lockfile));
     }
@@ -998,6 +1045,182 @@ for (const [name, output, message] of [
 ]) {
   test(`exits with 2 on ${name}`, { skip }, () => {
     const run = runAudit(output);
+
+    assert.equal(run.status, 2, run.stdout);
+    assert.match(run.stderr, message);
+  });
+}
+
+// patchOutOfReach: a patched version blocks unless no dependent can reach it.
+
+test(
+  'allows a patched version that no dependent of the lockfile can reach',
+  { skip },
+  () => {
+    const run = runAudit(report({ braces: braces() }), {
+      gh: advisory('4.0.0'),
+      allowed: BRACES_OUT_OF_REACH,
+      lockfile: dependents('^3.0.3', '~3.0.0', '3.x'),
+    });
+
+    assert.equal(run.status, 0, run.stdout + run.stderr);
+    assert.match(
+      run.stdout,
+      /permitido {2}GHSA-vfj7-8cjw-p6xm .*\n {13}braces solo está corregido en un major que nadie pide\.\n {13}Corregido en braces 4\.0\.0, según la base de datos de avisos de GitHub, pero fuera del alcance de los 3 dependientes del lockfile: \^3\.0\.3 de dependent-1; ~3\.0\.0 de dependent-2; 3\.x de dependent-3\./,
+    );
+    assert.match(run.stdout, /OK: ningún aviso fuera de las excepciones/);
+  },
+);
+
+for (const [name, range] of [
+  ['a caret range of the patched major', '^4.0.0'],
+  ['a range with a ">=" bound and no cap', '>=3.0.0'],
+  ['a "<=" bound at the patched major', '>=3.0.0 <=4.0.0'],
+  ['a "<" bound above the patched major', '<4.0.1'],
+  ['an alternative that reaches it', '^2.0.0 || ^4.0.0'],
+  ['a hyphen range up to it', '3.0.0 - 4.2.0'],
+  ['an alias it cannot read', 'npm:other@^1.0.0'],
+  ['"*"', '*'],
+  ['"latest"', 'latest'],
+]) {
+  test(`blocks a patched version that ${name} can reach`, { skip }, () => {
+    const run = runAudit(report({ braces: braces() }), {
+      gh: advisory('4.0.0'),
+      allowed: BRACES_OUT_OF_REACH,
+      lockfile: dependents('^3.0.3', range),
+    });
+
+    assert.equal(run.status, 1, run.stdout + run.stderr);
+    assert.match(
+      run.stdout,
+      new RegExp(
+        'BLOQUEA {4}GHSA-vfj7-8cjw-p6xm .*\\n {13}Ya tiene versión corregida: braces 4\\.0\\.0, según la base de datos de avisos de GitHub, y está al alcance de ' +
+          range.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') +
+          ' de dependent-2\\. Actualiza y quita la excepción\\.',
+      ),
+    );
+  });
+}
+
+for (const [name, range] of [
+  ['a "<" bound at the patched major', '<4.0.0'],
+  ['a "<" bound written as a major', '>=3.0.0 <4'],
+  ['a tilde range', '~3.1.0'],
+  ['an exact version', '3.0.3'],
+  ['an "=" version', '=3.0.3'],
+  ['a hyphen range below it', '2.0.0 - 3.9.9'],
+  ['alternatives that stay below it', '^2.0.0 || ^3.0.0'],
+]) {
+  test(`reads ${name} as out of reach of the patch`, { skip }, () => {
+    const run = runAudit(report({ braces: braces() }), {
+      gh: advisory('4.0.0'),
+      allowed: BRACES_OUT_OF_REACH,
+      lockfile: dependents(range),
+    });
+
+    assert.equal(run.status, 0, run.stdout + run.stderr);
+  });
+}
+
+test('the lowest patched version decides the reach', { skip }, () => {
+  const gh = advisory('5.0.0');
+  gh.vulnerabilities.push({ ...gh.vulnerabilities[0], first_patched_version: '4.0.0' });
+
+  const run = runAudit(report({ braces: braces() }), {
+    gh,
+    allowed: BRACES_OUT_OF_REACH,
+    lockfile: dependents('^4.0.0'),
+  });
+
+  assert.equal(run.status, 1, run.stdout);
+  assert.match(run.stdout, /está al alcance de \^4\.0\.0 de dependent-1/);
+});
+
+test('a patch out of reach still blocks without the mark', { skip }, () => {
+  const run = runAudit(report({ braces: braces() }), {
+    gh: advisory('4.0.0'),
+    lockfile: dependents('^3.0.3'),
+  });
+
+  assert.equal(run.status, 1);
+  assert.match(run.stdout, /Ya tiene versión corregida: braces 4\.0\.0, según/);
+  assert.doesNotMatch(run.stdout, /alcance/);
+});
+
+test('with the mark and no patch, says the mark is not needed', { skip }, () => {
+  const run = runAudit(report({ braces: braces() }), {
+    allowed: BRACES_OUT_OF_REACH,
+    lockfile: dependents('^3.0.3'),
+  });
+
+  assert.equal(run.status, 0, run.stderr);
+  assert.match(
+    run.stdout,
+    /Sin versión corregida, según la base de datos de avisos de GitHub\. La marca patchOutOfReach sobra mientras no haya parche\./,
+  );
+});
+
+test('the reach is read from the lockfile, not from npm or gh', { skip }, () => {
+  const run = runAudit(report({ braces: braces() }), {
+    gh: advisory('4.0.0'),
+    allowed: BRACES_OUT_OF_REACH,
+    lockfile: dependents('^3.0.3'),
+  });
+
+  assert.equal(run.status, 0, run.stdout + run.stderr);
+  assert.deepEqual(run.ghArgs, [`api /advisories/${GHSA}`]);
+  assert.deepEqual(run.npmArgs, ['audit --json']);
+});
+
+for (const [name, lockfile, message] of [
+  ['without a lockfile', null, /No se ha podido leer package-lock\.json/],
+  ['without packages', { lockfileVersion: 3 }, /no trae el objeto packages/],
+  [
+    'without any dependent of braces',
+    { lockfileVersion: 3, packages: { 'node_modules/braces': { version: '3.0.3' } } },
+    /Ningún paquete de package-lock\.json declara braces como dependencia/,
+  ],
+]) {
+  test(`exits with 2 when the reach cannot be read ${name}`, { skip }, () => {
+    const run = runAudit(report({ braces: braces() }), {
+      gh: advisory('4.0.0'),
+      allowed: BRACES_OUT_OF_REACH,
+      lockfile,
+    });
+
+    assert.equal(run.status, 2, run.stdout);
+    assert.match(run.stderr, message);
+    assert.doesNotMatch(run.stdout, /permitido|OK:/);
+  });
+}
+
+// The exception list itself.
+
+for (const [name, allowed, message] of [
+  ['is not a Map', 'export const ALLOWED = [];\n', /no exporta un Map/],
+  [
+    'has an entry without a reason',
+    allowedModule([[GHSA, { package: 'braces' }]]),
+    /no tiene la forma esperada/,
+  ],
+  [
+    'has an entry without a package',
+    allowedModule([[GHSA, { reason: 'x' }]]),
+    /no tiene la forma esperada/,
+  ],
+  [
+    'has an entry whose patchOutOfReach is not a boolean',
+    allowedModule([[GHSA, { package: 'braces', reason: 'x', patchOutOfReach: 'yes' }]]),
+    /no tiene la forma esperada/,
+  ],
+  [
+    'has a key that is not a GHSA',
+    allowedModule([['CVE-2024-4068', { package: 'braces', reason: 'x' }]]),
+    /no tiene la forma esperada/,
+  ],
+]) {
+  test(`exits with 2 when the exception list ${name}`, { skip }, () => {
+    const run = runAudit(report({ braces: braces() }), { allowed });
 
     assert.equal(run.status, 2, run.stdout);
     assert.match(run.stderr, message);

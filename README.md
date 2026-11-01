@@ -91,12 +91,13 @@ los `.mjs`.
 `.github/workflows/ci.yml` se ejecuta en cada PR y en cada push a `master`:
 
 - `js`: lint, TypeScript, Jest, los tests de `scripts/`, la auditoría (con el
-  token del job, para preguntar a GitHub por el aviso de braces) y los
+  token del job, para preguntar a GitHub por los avisos exceptuados) y los
   bundles de Metro de Android e iOS (`react-native bundle --dev false`).
 - `dependency-review`, solo en las PR: compara el grafo de dependencias de la
   PR con el de `master` en todos los manifiestos que lee GitHub
   (`package-lock.json`, `Gemfile`, `Gemfile.lock`, las acciones) y falla con
-  cualquier aviso nuevo, de cualquier severidad, salvo el de braces. Cubre lo
+  cualquier aviso nuevo, de cualquier severidad, salvo los de
+  la lista de excepciones de `npm audit`. Cubre lo
   que `npm audit` no ve, como las gemas de CocoaPods.
 - `android`: `./gradlew assembleDebug assembleRelease` con JDK 17.
   `setup-gradle` comprueba `gradle-wrapper.jar` con las sumas que publica
@@ -289,57 +290,44 @@ Cambios de comportamiento:
   teclado tapa el pie, como en 0.62. El cálculo se rehace al escribir, sin
   pulsar CALCULAR.
 
-## Excepción de `npm audit`: braces (GHSA-vfj7-8cjw-p6xm)
+## Excepciones de `npm audit`
 
 `npm run audit:ci` (`scripts/audit-ci.mjs`) ejecuta `npm audit` y falla con
-cualquier aviso salvo uno:
-[GHSA-vfj7-8cjw-p6xm](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm),
-denegación de servicio en `braces` <= 3.0.3 con patrones muy anidados.
+cualquier aviso salvo los que lista `scripts/audit-ci.allowed.mjs`, cada uno
+atado a un único paquete y con su motivo. Hoy son dos, los dos en
+dependencias de desarrollo que no entran en el bundle de la app:
 
-- No hay versión corregida: 3.0.3 es la última publicada, así que no hay nada a
-  lo que actualizar ni que forzar con `overrides`.
-- Llega por `micromatch`, que usan Metro (el empaquetador, dependencia de
-  `react-native`), la CLI de React Native y Jest. Se ejecuta al construir y en
-  los tests, con patrones del propio proyecto, y no entra en el bundle de la
-  app.
-- La excepción vale solo para el paquete `braces`: si el mismo aviso alcanza a
-  otro, el script falla.
-- **Caduca sola, en cuanto braces tenga versión corregida.** El script lo
-  pregunta en cada ejecución: a la base de datos de avisos de GitHub
-  (`gh api /advisories/GHSA-vfj7-8cjw-p6xm`, el `first_patched_version` de
-  braces) y, si `gh` no responde (no está instalado o no tiene token), al
-  registro de npm (`npm view braces versions --json`: cualquier versión
-  publicada fuera del rango vulnerable, `<=3.0.3`, cuenta como corregida; las
-  prerrelease no). Con versión corregida, el script falla y pide actualizar y
-  quitar la excepción. Si no puede preguntar a ninguno de los dos, sale con
-  código 2: una excepción que no puede comprobar no la concede. Tampoco con
-  una respuesta de GitHub en otra forma: la de otro aviso, o un
-  `first_patched_version` ausente o que no sea `null` ni una versión (un
-  objeto, un número). En el CI pregunta con el token del job (`GH_TOKEN`).
-- El `fixAvailable` de `npm audit` no decide nada. El script lo muestra, pero
-  para braces npm propone el arreglo de la primera dependencia de primer nivel
-  que lo arrastra, y ese orden cambia de una ejecución a otra: en 26
-  ejecuciones seguidas propuso 24 veces instalar `react-native@0.72.17`, una
-  `@react-native-community/cli-platform-android@15.1.0` (las dos, bajadas) y
-  una `jest@30.5.2`, y el script salió con 0 las 26. Y aunque fuera una
-  subida, actualizar esa dependencia no quitaría el braces que traen las
-  demás.
-- Si el aviso deja de aparecer, el script avisa para borrar la excepción.
-- Una salida de `npm audit` que el script no entiende (un error, otro formato
-  de informe o un total que no cuadra) sale con código 2, nunca como un
-  informe limpio. `npm run test:scripts` lo prueba con un npm y un `gh` falsos,
-  como los casos con y sin versión corregida y las consultas que fallan.
-- Jest va en la 29, la de la plantilla: `@react-native/jest-preset` 0.87.1
-  trae `babel-jest` y `jest-environment-node` 29, y con Jest 30 sería una
-  combinación sin soporte. El proyecto pasó por Jest 30 mientras la regla
-  anterior decidía por el `fixAvailable` y contaba la propuesta de
-  `jest@30.5.2` como arreglo; con la de ahora eso ya no importa: lo que decide
-  es si braces tiene versión corregida. `npm audit` cuenta 48 paquetes
-  afectados, todos por braces.
-- El job `dependency-review` del CI tiene la misma excepción (`allow-ghsas`),
-  para el grafo de dependencias de GitHub.
+- [GHSA-gcqx-w48m-w2h4](https://github.com/advisories/GHSA-gcqx-w48m-w2h4)
+  (baja), envenenamiento de prototipo en `deepmerge` 4.3.1. No hay versión
+  corregida. Llega por la CLI de React Native y por `jest-config`.
+- [GHSA-g3hv-75wg-m249](https://github.com/advisories/GHSA-g3hv-75wg-m249)
+  (media), denegación de servicio en `minimatch` < 11.0.1. Solo está
+  corregido en la 11, un major ESM puro que ninguno de sus dependientes del
+  lockfile admite (eslint y compañía piden `^3`, `typescript-estree` `^10`).
+  Es una excepción `patchOutOfReach`.
 
-Fuera de braces, el único `overrides` es `js-yaml` `^4.1.1` dentro de
+Las dos caducan solas, y el script lo comprueba en cada ejecución:
+
+- Una excepción normal vale mientras el aviso no tenga versión corregida. El
+  script lo pregunta a la base de avisos de GitHub (`gh api
+  /advisories/<id>`, con `GH_TOKEN` en el CI) y, si `gh` no responde, al
+  registro de npm (`npm view <paquete> versions --json`). Con versión
+  corregida falla y pide actualizar y quitar la excepción.
+- Una `patchOutOfReach` vale mientras ningún dependiente de
+  `package-lock.json` pueda resolver al major corregido: el script lee sus
+  rangos del lockfile, y uno que no entiende cuenta como que lo alcanza. En
+  cuanto alguno admita ese major, falla.
+- Si no puede comprobarlo (ni GitHub ni npm responden, no hay lockfile o
+  nadie declara el paquete), o no entiende la salida de `npm audit`, sale con
+  código 2, nunca como un informe limpio.
+- El `fixAvailable` de `npm audit` se muestra, pero no decide: npm propone el
+  arreglo de una de las dependencias de primer nivel, a menudo una bajada.
+- Si un aviso deja de aparecer, el script avisa para borrar la excepción.
+- `npm run test:scripts` lo prueba todo con un `npm` y un `gh` falsos.
+- El job `dependency-review` del CI tiene las mismas excepciones
+  (`allow-ghsas`), para el grafo de dependencias de GitHub.
+
+Fuera de estas excepciones, el único `overrides` es `js-yaml` `^4.1.1` dentro de
 `@istanbuljs/load-nyc-config` (lo trae `babel-plugin-istanbul` 6, de
 `babel-jest` 29). Su `js-yaml` 3 arrastraba `argparse` 1 y `sprintf-js`
 1.0.3, con [GHSA-hp3w-g68c-fv3c](https://github.com/advisories/GHSA-hp3w-g68c-fv3c)

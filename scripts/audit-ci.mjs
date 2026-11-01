@@ -5,15 +5,25 @@
 // advisory, including one that has no fixed release anywhere. This keeps the
 // check strict for everything else, and each exception says why it is there.
 //
-// An exception only holds while its advisory has no patched version, and the
-// script asks: the GitHub Advisory Database (`gh api /advisories/<id>`) or,
-// when gh cannot answer (not installed, or without a token), the npm registry
-// (`npm view <package> versions`, looking for a release outside the vulnerable
-// range). As soon as there is a patched version the build turns red until the
-// lockfile picks it up and the exception goes. If neither can answer, the
-// script exits with 2: an exception it cannot check is not granted. Neither is
-// one checked against an answer from GitHub in another form: another advisory,
-// or a first_patched_version that is missing or neither null nor a version.
+// The exceptions live in scripts/audit-ci.allowed.mjs. One only holds while
+// its advisory has no patched version, and the script asks: the GitHub
+// Advisory Database (`gh api /advisories/<id>`) or, when gh cannot answer (not
+// installed, or without a token), the npm registry (`npm view <package>
+// versions`, looking for a release outside the vulnerable range). As soon as
+// there is a patched version the build turns red until the lockfile picks it
+// up and the exception goes. If neither can answer, the script exits with 2:
+// an exception it cannot check is not granted. Neither is one checked against
+// an answer from GitHub in another form: another advisory, or a
+// first_patched_version that is missing or neither null nor a version.
+//
+// An exception marked `patchOutOfReach` is the one case where a patched
+// version does not block: when it lives in a major that no dependent in
+// package-lock.json accepts (every range they declare for the package caps the
+// major below it), so no install can reach it. The script reads those ranges
+// from the lockfile on every run; a range it cannot read counts as reaching the
+// patch, and with no dependent to read, or no lockfile, it exits with 2. As
+// soon as one dependent accepts the patched major, the build turns red until
+// the lockfile picks it up and the exception goes.
 //
 // npm's fixAvailable is printed but does not decide. For a package that
 // several dependents bring, npm reports the fix of whichever dependent it
@@ -30,20 +40,7 @@ import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-/** Advisories tolerated on purpose: GHSA id → the only package it may hit. */
-const ALLOWED = new Map([
-  [
-    'GHSA-vfj7-8cjw-p6xm',
-    {
-      package: 'braces',
-      reason:
-        'braces <= 3.0.3 no tiene ninguna versión corregida. Llega por ' +
-        'micromatch, que usan Metro (el empaquetador), la CLI de React ' +
-        'Native y Jest; se ejecuta al construir y en los tests, y no forma ' +
-        'parte del bundle de la app.',
-    },
-  ],
-]);
+import { ALLOWED } from './audit-ci.allowed.mjs';
 
 const projectRoot = fileURLToPath(new URL('..', import.meta.url));
 const lockfilePath = fileURLToPath(
@@ -57,6 +54,29 @@ function fail(message) {
 
 function isObject(value) {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+if (!(ALLOWED instanceof Map)) {
+  fail('scripts/audit-ci.allowed.mjs no exporta un Map en ALLOWED.');
+}
+for (const [id, entry] of ALLOWED) {
+  if (
+    typeof id !== 'string' ||
+    !/^GHSA(-[a-z0-9]{4}){3}$/.test(id) ||
+    !isObject(entry) ||
+    typeof entry.package !== 'string' ||
+    entry.package === '' ||
+    typeof entry.reason !== 'string' ||
+    entry.reason === '' ||
+    (entry.patchOutOfReach !== undefined &&
+      typeof entry.patchOutOfReach !== 'boolean')
+  ) {
+    fail(
+      `La excepción ${JSON.stringify(id)} de scripts/audit-ci.allowed.mjs no ` +
+        'tiene la forma esperada: un GHSA con package, reason y, opcionalmente, ' +
+        'patchOutOfReach booleano.',
+    );
+  }
 }
 
 // Always the npm on PATH. npm_execpath is whatever package manager started
@@ -376,6 +396,135 @@ function patchStatus(id, name, range) {
   };
 }
 
+/** The major of a version or range component; null when it is not a number. */
+function majorOf(text) {
+  const match = /^v?(\d+)/.exec(text);
+  return match ? Number(match[1]) : null;
+}
+
+/**
+ * The highest major an npm dependency range can resolve to, or Infinity when
+ * it is unbounded or not a range this script understands (a tag, an alias, a
+ * URL...). Only the major matters here, and the answer never claims less reach
+ * than the range has.
+ */
+function maxMajor(range) {
+  const text = String(range).trim();
+  if (text === '' || text === '*' || /^x$/i.test(text) || text === 'latest') {
+    return Infinity;
+  }
+
+  let max = -1;
+  for (const alternative of text.split('||')) {
+    const part = alternative.trim();
+    let cap;
+
+    const hyphen = /^(\S+)\s+-\s+(\S+)$/.exec(part);
+    if (hyphen) {
+      cap = majorOf(hyphen[2]);
+    } else if (/^[\^~=]?v?\d/.test(part) && !/\s/.test(part)) {
+      // ^1.2.3, ~1.2.3, =1.2.3, 1.2.3, 1.2, 1.x: the major written in it.
+      cap = majorOf(part.replace(/^[\^~=]/, ''));
+    } else if (/^[<>=]/.test(part) || /\s/.test(part)) {
+      // A set of comparators: the tightest "<" or "<=" bound caps the major.
+      cap = Infinity;
+      for (const comparator of part.split(/\s+/)) {
+        const match = /^(<=|<)v?(\d+)(?:\.(\d+|[xX*]))?(?:\.(\d+|[xX*]))?$/.exec(
+          comparator,
+        );
+        if (!match) {
+          if (/^(>=|>|=)?v?\d/.test(comparator)) {
+            continue;
+          }
+          cap = Infinity;
+          break;
+        }
+        const major = Number(match[2]);
+        const minor = match[3] ?? '0';
+        const patch = match[4] ?? '0';
+        // "<11.0.0" (or "<11") leaves 10.x as the highest; "<11.0.1" still
+        // admits 11.0.0.
+        const bound =
+          match[1] === '<' && minor === '0' && patch === '0' ? major - 1 : major;
+        cap = Math.min(cap, bound);
+      }
+    } else {
+      cap = Infinity;
+    }
+
+    if (cap === null) {
+      cap = Infinity;
+    }
+    max = Math.max(max, cap);
+  }
+  return max;
+}
+
+/**
+ * Which packages of the lockfile declare a dependency on `name`, and whether
+ * any of their ranges can reach one of the `patched` versions.
+ */
+function patchReach(name, patched) {
+  let packages;
+  try {
+    packages = JSON.parse(readFileSync(lockfilePath, 'utf8')).packages;
+  } catch {
+    fail(
+      `No se ha podido leer package-lock.json para saber si el parche de ` +
+        `${name} está al alcance de sus dependientes.`,
+    );
+  }
+  if (!isObject(packages)) {
+    fail(
+      'package-lock.json no trae el objeto packages: no se puede saber si el ' +
+        `parche de ${name} está al alcance de sus dependientes.`,
+    );
+  }
+
+  const majors = patched.map(majorOf);
+  if (majors.some(major => major === null)) {
+    fail(
+      `No se entiende la versión corregida ${JSON.stringify(
+        patched.join(', '),
+      )} de ${name}.`,
+    );
+  }
+  const lowest = Math.min(...majors);
+
+  const dependents = [];
+  for (const [path, entry] of Object.entries(packages)) {
+    for (const field of [
+      'dependencies',
+      'optionalDependencies',
+      'peerDependencies',
+      'devDependencies',
+    ]) {
+      const range = entry?.[field]?.[name];
+      if (typeof range === 'string') {
+        const who = path === '' ? 'el proyecto' : path.replace(/^.*node_modules\//, '');
+        dependents.push({ who, range, reaches: maxMajor(range) >= lowest });
+      }
+    }
+  }
+  if (dependents.length === 0) {
+    fail(
+      `Ningún paquete de package-lock.json declara ${name} como dependencia: ` +
+        'no se puede saber si el parche está fuera de su alcance.',
+    );
+  }
+  return dependents;
+}
+
+function describeRanges(dependents) {
+  const byRange = new Map();
+  for (const { who, range } of dependents) {
+    byRange.set(range, [...(byRange.get(range) ?? []), who]);
+  }
+  return [...byRange]
+    .map(([range, whos]) => `${range} de ${[...new Set(whos)].join(', ')}`)
+    .join('; ');
+}
+
 /** What npm offers for a vulnerable package, to print it; it decides nothing. */
 function describeFix(fixAvailable) {
   if (fixAvailable === true) {
@@ -463,7 +612,7 @@ for (const advisory of advisories.values()) {
     allowed.package,
     advisory.ranges.get(allowed.package),
   );
-  if (patched) {
+  if (patched && !allowed.patchOutOfReach) {
     console.log(
       `  BLOQUEA    ${line}\n             Ya tiene versión corregida: ` +
         `${allowed.package} ${patched}, según ${source}. Actualiza y quita la excepción.`,
@@ -472,10 +621,33 @@ for (const advisory of advisories.values()) {
     continue;
   }
 
-  console.log(
-    `  permitido  ${line}\n             ${allowed.reason}\n` +
-      `             Sin versión corregida, según ${source}.`,
-  );
+  if (patched) {
+    const dependents = patchReach(allowed.package, patched.split(', '));
+    const reaching = dependents.filter(dependent => dependent.reaches);
+    if (reaching.length > 0) {
+      console.log(
+        `  BLOQUEA    ${line}\n             Ya tiene versión corregida: ` +
+          `${allowed.package} ${patched}, según ${source}, y está al alcance ` +
+          `de ${describeRanges(reaching)}. Actualiza y quita la excepción.`,
+      );
+      blocking.push(advisory);
+      continue;
+    }
+    console.log(
+      `  permitido  ${line}\n             ${allowed.reason}\n` +
+        `             Corregido en ${allowed.package} ${patched}, según ${source}, ` +
+        `pero fuera del alcance de los ${dependents.length} dependientes del ` +
+        `lockfile: ${describeRanges(dependents)}.`,
+    );
+  } else {
+    console.log(
+      `  permitido  ${line}\n             ${allowed.reason}\n` +
+        `             Sin versión corregida, según ${source}.` +
+        (allowed.patchOutOfReach
+          ? ' La marca patchOutOfReach sobra mientras no haya parche.'
+          : ''),
+    );
+  }
   for (const fix of advisory.fixes) {
     console.log(
       `             npm propone ${fix}. No cuenta: lo que decide es si ` +

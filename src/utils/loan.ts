@@ -27,6 +27,23 @@ export const ERROR_MESSAGES = {
 } as const;
 
 /**
+ * Shown when every field is valid but the total cannot be written as money:
+ * past 1e21 toFixed switches to exponent notation ("1e+21"), and further up the
+ * product overflows to Infinity. Not one of the 0.62 texts, which had no such
+ * case: the summary simply read "Infinity €" or "1,35e+21 €".
+ */
+export const OUT_OF_RANGE_MESSAGE =
+  'El importe es demasiado grande para calcularlo';
+
+/** The largest total the summary can show with toFixed in plain digits. */
+const MAX_PRINTABLE = 1e21;
+
+// Plain decimal notation, with an optional exponent ("1e3" was always read).
+// Number() alone also takes "0x10" (16), "0b11" (3) and "0o7" (7): text a
+// user pasting into the field never meant as a hexadecimal amount.
+const DECIMAL = /^[+-]?(\d+(\.\d*)?|\.\d+)(e[+-]?\d+)?$/i;
+
+/**
  * Reads one of the numeric fields.
  *
  * TextInput hands back a string, and the previous code fed it straight to the
@@ -45,7 +62,7 @@ export function toNumber(value: LoanInput): number | null {
 
   const normalised = String(value).trim().replace(',', '.');
 
-  if (normalised === '') {
+  if (!DECIMAL.test(normalised)) {
     return null;
   }
 
@@ -145,12 +162,17 @@ export function calculateLoan(
   }
 
   const fee = monthlyFee(amount, rate, term);
+  const total = fee * term;
+
+  if (!Number.isFinite(total) || total >= MAX_PRINTABLE) {
+    return { ok: false, error: OUT_OF_RANGE_MESSAGE };
+  }
 
   return {
     ok: true,
     quote: {
       monthlyFee: formatAmount(fee),
-      totalPayable: formatAmount(fee * term),
+      totalPayable: formatAmount(total),
     },
   };
 }

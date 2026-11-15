@@ -47,7 +47,7 @@ jobs:
         run: npm run test:scripts
 
       # Fails on any advisory except those in scripts/audit-ci.allowed.mjs
-      # (deepmerge, minimatch), and on each of them as soon as it has a patch
+      # (deepmerge), and on each of them as soon as it has a patch
       # that an install can reach, which the script checks against the GitHub
       # Advisory Database (with the token), the npm registry and the lockfile.
       # The reasons are in that file and the README.
@@ -85,7 +85,7 @@ jobs:
           fail-on-severity: low
           # The same exceptions as npm run audit:ci: see
           # scripts/audit-ci.allowed.mjs and the README.
-          allow-ghsas: GHSA-gcqx-w48m-w2h4, GHSA-g3hv-75wg-m249
+          allow-ghsas: GHSA-gcqx-w48m-w2h4
 
   android:
     runs-on: ubuntu-latest

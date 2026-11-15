@@ -25,18 +25,4 @@ export const ALLOWED = new Map([
         'de la app.',
     },
   ],
-  [
-    'GHSA-g3hv-75wg-m249',
-    {
-      package: 'minimatch',
-      patchOutOfReach: true,
-      reason:
-        'minimatch solo está corregido en 11.0.1, un major que es ESM puro. ' +
-        'eslint, @eslint/eslintrc, eslint-plugin-react, ' +
-        '@humanwhocodes/config-array, glob y test-exclude piden ^3 y ' +
-        '@typescript-eslint/typescript-estree pide ^10, así que ninguna ' +
-        'instalación puede llegar a la 11. Se usa en el lint y en los tests, ' +
-        'y no forma parte del bundle de la app.',
-    },
-  ],
 ]);

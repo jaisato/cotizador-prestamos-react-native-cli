@@ -73,7 +73,7 @@ parche como artefacto.
 ## Comprobaciones
 
 ```sh
-npm run lint
+npm run lint           # ESLint, también sobre los .mjs de scripts/
 npx tsc --noEmit
 npm test               # Jest: el cálculo, la pantalla y la maquetación por plataforma
 npm run test:scripts   # el script de auditoría, con un npm y un gh falsos

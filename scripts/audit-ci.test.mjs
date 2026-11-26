@@ -510,20 +510,20 @@ for (const [name, gh, message] of [
   [
     'no first_patched_version',
     (() => {
-      const gh = advisory();
-      delete gh.vulnerabilities[0].first_patched_version;
-      return gh;
+      const payload = advisory();
+      delete payload.vulnerabilities[0].first_patched_version;
+      return payload;
     })(),
     /trae para braces un first_patched_version ausente, y solo/,
   ],
   [
     'one entry of braces without first_patched_version, besides a good one',
     (() => {
-      const gh = advisory();
-      gh.vulnerabilities.push({
+      const payload = advisory();
+      payload.vulnerabilities.push({
         package: { ecosystem: 'npm', name: 'braces' },
       });
-      return gh;
+      return payload;
     })(),
     /first_patched_version ausente/,
   ],
@@ -535,9 +535,9 @@ for (const [name, gh, message] of [
   [
     'an advisory without its id',
     (() => {
-      const gh = advisory();
-      delete gh.ghsa_id;
-      return gh;
+      const payload = advisory();
+      delete payload.ghsa_id;
+      return payload;
     })(),
     /ha devuelto otro aviso \(ghsa_id undefined\)/,
   ],

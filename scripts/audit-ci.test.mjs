@@ -850,7 +850,11 @@ test('passes a clean report and says the exception can go', { skip }, () => {
   const run = runAudit(report({}), { status: 0 });
 
   assert.equal(run.status, 0, run.stderr);
-  assert.match(run.stdout, /GHSA-vfj7-8cjw-p6xm ya no aparece/);
+  // It names the file the list lives in, not the script.
+  assert.match(
+    run.stdout,
+    /^ {2}aviso: GHSA-vfj7-8cjw-p6xm ya no aparece; quita la excepción de scripts\/audit-ci\.allowed\.mjs\.$/m,
+  );
 });
 
 test('prints what it allows and why', { skip }, () => {

@@ -12,17 +12,4 @@
 //   The script reads those ranges from the lockfile; as soon as one dependent
 //   accepts the patched major, the build turns red until the lockfile picks it
 //   up and the entry goes.
-export const ALLOWED = new Map([
-  [
-    'GHSA-gcqx-w48m-w2h4',
-    {
-      package: 'deepmerge',
-      reason:
-        'deepmerge 4.3.1 no tiene ninguna versión corregida (mergeObject() ' +
-        'permite envenenar el prototipo del objeto devuelto). Llega por la ' +
-        'CLI de React Native (cli, cli-config y cli-doctor) y por jest-config; ' +
-        'se ejecuta al construir y en los tests, y no forma parte del bundle ' +
-        'de la app.',
-    },
-  ],
-]);
+export const ALLOWED = new Map([]);

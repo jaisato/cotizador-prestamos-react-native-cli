@@ -294,12 +294,10 @@ Cambios de comportamiento:
 
 `npm run audit:ci` (`scripts/audit-ci.mjs`) ejecuta `npm audit` y falla con
 cualquier aviso salvo los que lista `scripts/audit-ci.allowed.mjs`, cada uno
-atado a un único paquete y con su motivo. Hoy es una, en dependencias de
-desarrollo que no entran en el bundle de la app:
-
-- [GHSA-gcqx-w48m-w2h4](https://github.com/advisories/GHSA-gcqx-w48m-w2h4)
-  (baja), envenenamiento de prototipo en `deepmerge` 4.3.1. No hay versión
-  corregida. Llega por la CLI de React Native y por `jest-config`.
+atado a un único paquete y con su motivo. Hoy no hay ninguna: la lista está
+vacía. La última, la de `deepmerge` 4.3.1
+([GHSA-gcqx-w48m-w2h4](https://github.com/advisories/GHSA-gcqx-w48m-w2h4)),
+se quitó cuando GitHub retiró el aviso, el 16-nov-2026.
 
 Las excepciones caducan solas, y el script lo comprueba en cada ejecución:
 
@@ -320,8 +318,9 @@ Las excepciones caducan solas, y el script lo comprueba en cada ejecución:
   arreglo de una de las dependencias de primer nivel, a menudo una bajada.
 - Si un aviso deja de aparecer, el script avisa para borrar la excepción.
 - `npm run test:scripts` lo prueba todo con un `npm` y un `gh` falsos.
-- El job `dependency-review` del CI tiene las mismas excepciones
-  (`allow-ghsas`), para el grafo de dependencias de GitHub.
+- El job `dependency-review` del CI lleva las mismas excepciones en
+  `allow-ghsas`, para el grafo de dependencias de GitHub. Hoy no lo declara,
+  porque no hay ninguna.
 
 Fuera de estas excepciones hay dos `overrides`:
 

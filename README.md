@@ -108,16 +108,16 @@ los `.mjs`.
 `.github/workflows/ios.yml` compila la app de iOS en macOS:
 
 - Se lanza al poner la etiqueta `ios` en una PR, a mano (_Run workflow_) y en
-  cada push a `master` que cambie `ios/`, `package-lock.json`, `Gemfile*` o el
-  propio workflow. Para repetirlo en una PR, quita la etiqueta y vuelve a
+  cada push a `master` que cambie `ios/`, `package-lock.json`, `Gemfile*`,
+  `.bundle/config` (lo lee `bundle install`) o el propio workflow. Para repetirlo en una PR, quita la etiqueta y vuelve a
   ponerla. Dependabot la pone en sus PR de npm y Bundler.
 - No es por coste: el repo es público y los runners estándar de GitHub,
   también los de macOS, son gratuitos. Corre cuando puede cambiar algo de iOS,
   que es lo que vigilan sus disparadores, para que una PR que solo toca
   JavaScript no espere a un runner de macOS, que tiene menos concurrencia que
   los de Linux (5 trabajos a la vez en el plan gratuito). Una PR que cambie
-  `ios/`, `package-lock.json` o `Gemfile*` debe llevar la etiqueta antes de
-  fusionarse; si no, el push a `master` lo detecta después.
+  `ios/`, `package-lock.json`, `Gemfile*` o `.bundle/config` debe llevar la
+  etiqueta antes de fusionarse; si no, el push a `master` lo detecta después.
 - Instala los pods con `npx react-native build-ios --only-pods`, compila Debug
   y Release para el simulador sin firmar y comprueba el `.app` de Release:
   `main.jsbundle` en bytecode de Hermes, `PrivacyInfo.xcprivacy` incluido,

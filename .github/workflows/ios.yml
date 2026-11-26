@@ -14,6 +14,8 @@ on:
       - 'ios/**'
       - 'package-lock.json'
       - 'Gemfile*'
+      # bundle install reads it (BUNDLE_FORCE_RUBY_PLATFORM and friends).
+      - '.bundle/config'
       - '.github/workflows/ios.yml'
 
 permissions:

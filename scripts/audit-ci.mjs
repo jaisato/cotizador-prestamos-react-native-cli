@@ -659,7 +659,7 @@ for (const advisory of advisories.values()) {
 for (const id of ALLOWED.keys()) {
   if (!advisories.has(id)) {
     console.log(
-      `  aviso: ${id} ya no aparece; quita la excepción de scripts/audit-ci.mjs.`,
+      `  aviso: ${id} ya no aparece; quita la excepción de scripts/audit-ci.allowed.mjs.`,
     );
   }
 }

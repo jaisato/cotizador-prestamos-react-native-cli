@@ -25,7 +25,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -47,7 +47,7 @@ jobs:
         run: npm run test:scripts
 
       # Fails on any advisory except those in scripts/audit-ci.allowed.mjs
-      # (deepmerge, minimatch), and on each of them as soon as it has a patch
+      # (none today), and on each of them as soon as it has a patch
       # that an install can reach, which the script checks against the GitHub
       # Advisory Database (with the token), the npm registry and the lockfile.
       # The reasons are in that file and the README.
@@ -83,9 +83,8 @@ jobs:
       - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
         with:
           fail-on-severity: low
-          # The same exceptions as npm run audit:ci: see
-          # scripts/audit-ci.allowed.mjs and the README.
-          allow-ghsas: GHSA-gcqx-w48m-w2h4, GHSA-g3hv-75wg-m249
+          # No allow-ghsas: its list is that of npm run audit:ci
+          # (scripts/audit-ci.allowed.mjs and the README), empty today.
 
   android:
     runs-on: ubuntu-latest
@@ -95,7 +94,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -104,7 +103,7 @@ jobs:
       # node_modules.
       - run: npm ci
 
-      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
           distribution: temurin
           java-version: '17'
@@ -122,7 +121,7 @@ jobs:
         working-directory: android
         run: ./gradlew assembleDebug assembleRelease --no-daemon
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           path: android/app/build/outputs/apk/debug/app-debug.apk
           archive: false
@@ -134,7 +133,7 @@ jobs:
       - name: Name the release APK after its key
         run: cp android/app/build/outputs/apk/release/app-release.apk "$RUNNER_TEMP/app-release-debugkey.apk"
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           path: ${{ runner.temp }}/app-release-debugkey.apk
           archive: false

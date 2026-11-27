@@ -5,7 +5,7 @@
   "scripts": {
     "android": "react-native run-android",
     "ios": "react-native run-ios",
-    "lint": "eslint .",
+    "lint": "eslint . --ext .js,.jsx,.ts,.tsx,.mjs",
     "start": "react-native start",
     "test": "jest",
     "test:scripts": "node --test scripts/audit-ci.test.mjs",
@@ -42,6 +42,9 @@
   "overrides": {
     "@istanbuljs/load-nyc-config": {
       "js-yaml": "^4.1.1"
+    },
+    "@typescript-eslint/typescript-estree": {
+      "minimatch": "^11.0.1"
     }
   },
   "engines": {

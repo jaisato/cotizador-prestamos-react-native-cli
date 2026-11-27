@@ -73,7 +73,7 @@ parche como artefacto.
 ## Comprobaciones
 
 ```sh
-npm run lint
+npm run lint           # ESLint, también sobre los .mjs de scripts/
 npx tsc --noEmit
 npm test               # Jest: el cálculo, la pantalla y la maquetación por plataforma
 npm run test:scripts   # el script de auditoría, con un npm y un gh falsos
@@ -108,16 +108,16 @@ los `.mjs`.
 `.github/workflows/ios.yml` compila la app de iOS en macOS:
 
 - Se lanza al poner la etiqueta `ios` en una PR, a mano (_Run workflow_) y en
-  cada push a `master` que cambie `ios/`, `package-lock.json`, `Gemfile*` o el
-  propio workflow. Para repetirlo en una PR, quita la etiqueta y vuelve a
+  cada push a `master` que cambie `ios/`, `package-lock.json`, `Gemfile*`,
+  `.bundle/config` (lo lee `bundle install`) o el propio workflow. Para repetirlo en una PR, quita la etiqueta y vuelve a
   ponerla. Dependabot la pone en sus PR de npm y Bundler.
 - No es por coste: el repo es público y los runners estándar de GitHub,
   también los de macOS, son gratuitos. Corre cuando puede cambiar algo de iOS,
   que es lo que vigilan sus disparadores, para que una PR que solo toca
   JavaScript no espere a un runner de macOS, que tiene menos concurrencia que
   los de Linux (5 trabajos a la vez en el plan gratuito). Una PR que cambie
-  `ios/`, `package-lock.json` o `Gemfile*` debe llevar la etiqueta antes de
-  fusionarse; si no, el push a `master` lo detecta después.
+  `ios/`, `package-lock.json`, `Gemfile*` o `.bundle/config` debe llevar la
+  etiqueta antes de fusionarse; si no, el push a `master` lo detecta después.
 - Instala los pods con `npx react-native build-ios --only-pods`, compila Debug
   y Release para el simulador sin firmar y comprueba el `.app` de Release:
   `main.jsbundle` en bytecode de Hermes, `PrivacyInfo.xcprivacy` incluido,
@@ -294,19 +294,12 @@ Cambios de comportamiento:
 
 `npm run audit:ci` (`scripts/audit-ci.mjs`) ejecuta `npm audit` y falla con
 cualquier aviso salvo los que lista `scripts/audit-ci.allowed.mjs`, cada uno
-atado a un único paquete y con su motivo. Hoy son dos, los dos en
-dependencias de desarrollo que no entran en el bundle de la app:
+atado a un único paquete y con su motivo. Hoy no hay ninguna: la lista está
+vacía. La última, la de `deepmerge` 4.3.1
+([GHSA-gcqx-w48m-w2h4](https://github.com/advisories/GHSA-gcqx-w48m-w2h4)),
+se quitó cuando GitHub retiró el aviso, el 16-nov-2026.
 
-- [GHSA-gcqx-w48m-w2h4](https://github.com/advisories/GHSA-gcqx-w48m-w2h4)
-  (baja), envenenamiento de prototipo en `deepmerge` 4.3.1. No hay versión
-  corregida. Llega por la CLI de React Native y por `jest-config`.
-- [GHSA-g3hv-75wg-m249](https://github.com/advisories/GHSA-g3hv-75wg-m249)
-  (media), denegación de servicio en `minimatch` < 11.0.1. Solo está
-  corregido en la 11, un major ESM puro que ninguno de sus dependientes del
-  lockfile admite (eslint y compañía piden `^3`, `typescript-estree` `^10`).
-  Es una excepción `patchOutOfReach`.
-
-Las dos caducan solas, y el script lo comprueba en cada ejecución:
+Las excepciones caducan solas, y el script lo comprueba en cada ejecución:
 
 - Una excepción normal vale mientras el aviso no tenga versión corregida. El
   script lo pregunta a la base de avisos de GitHub (`gh api
@@ -316,7 +309,8 @@ Las dos caducan solas, y el script lo comprueba en cada ejecución:
 - Una `patchOutOfReach` vale mientras ningún dependiente de
   `package-lock.json` pueda resolver al major corregido: el script lee sus
   rangos del lockfile, y uno que no entiende cuenta como que lo alcanza. En
-  cuanto alguno admita ese major, falla.
+  cuanto alguno admita ese major, falla. Hoy no hay ninguna: la de
+  `minimatch` se quitó al subirlo con un `overrides` (ver abajo).
 - Si no puede comprobarlo (ni GitHub ni npm responden, no hay lockfile o
   nadie declara el paquete), o no entiende la salida de `npm audit`, sale con
   código 2, nunca como un informe limpio.
@@ -324,17 +318,32 @@ Las dos caducan solas, y el script lo comprueba en cada ejecución:
   arreglo de una de las dependencias de primer nivel, a menudo una bajada.
 - Si un aviso deja de aparecer, el script avisa para borrar la excepción.
 - `npm run test:scripts` lo prueba todo con un `npm` y un `gh` falsos.
-- El job `dependency-review` del CI tiene las mismas excepciones
-  (`allow-ghsas`), para el grafo de dependencias de GitHub.
+- El job `dependency-review` del CI lleva las mismas excepciones en
+  `allow-ghsas`, para el grafo de dependencias de GitHub. Hoy no lo declara,
+  porque no hay ninguna.
 
-Fuera de estas excepciones, el único `overrides` es `js-yaml` `^4.1.1` dentro de
-`@istanbuljs/load-nyc-config` (lo trae `babel-plugin-istanbul` 6, de
-`babel-jest` 29). Su `js-yaml` 3 arrastraba `argparse` 1 y `sprintf-js`
-1.0.3, con [GHSA-hp3w-g68c-fv3c](https://github.com/advisories/GHSA-hp3w-g68c-fv3c)
-(moderada) y sin versión corregida, y `npm run audit:ci` fallaba. Es la única
-excepción a la regla de la versión mayor: el paquete solo llama a
-`yaml.load()` para leer un `.nycrc.yaml` (que el proyecto no tiene), y en
-`js-yaml` 4 esa función existe igual y además es la segura por defecto. Cuando
-Jest deje `babel-plugin-istanbul` 6, sobra. Si algún día hace falta otro, debe
-quedarse dentro de la misma versión mayor (o justificar aquí por qué no) y
-explicarse en esta sección.
+Fuera de estas excepciones hay dos `overrides`:
+
+- `js-yaml` `^4.1.1` dentro de `@istanbuljs/load-nyc-config` (lo trae
+  `babel-plugin-istanbul` 6, de `babel-jest` 29). Su `js-yaml` 3 arrastraba
+  `argparse` 1 y `sprintf-js` 1.0.3, con
+  [GHSA-hp3w-g68c-fv3c](https://github.com/advisories/GHSA-hp3w-g68c-fv3c)
+  (moderada) y sin versión corregida, y `npm run audit:ci` fallaba. Es una
+  excepción a la regla de la versión mayor: el paquete solo llama a
+  `yaml.load()` para leer un `.nycrc.yaml` (que el proyecto no tiene), y en
+  `js-yaml` 4 esa función existe igual y además es la segura por defecto.
+  Cuando Jest deje `babel-plugin-istanbul` 6, sobra.
+- `minimatch` `^11.0.1` solo dentro de `@typescript-eslint/typescript-estree`
+  (lo trae `@react-native/eslint-config`, para el lint). Pide `^10.2.2`, y
+  [GHSA-g3hv-75wg-m249](https://github.com/advisories/GHSA-g3hv-75wg-m249)
+  (media, denegación de servicio) afecta a `minimatch` desde la 7 hasta la
+  11.0.0: solo está corregido a partir de la 11.0.1. Es la otra excepción a
+  la regla de la versión mayor: el paquete solo llama a
+  `minimatch(ruta, patrón, { dot: true })`, para `allowDefaultProject`, una
+  opción que este lint no usa, y la 11 conserva esa función y trae build
+  CommonJS, así que `require` la carga en todos los Node de `engines`. Las
+  copias 3.1.5 que usan eslint y compañía no están afectadas y no se tocan.
+  Cuando `typescript-estree` admita la 11, el override sobra.
+
+Si algún día hace falta otro, debe quedarse dentro de la misma versión mayor
+(o justificar aquí por qué no) y explicarse en esta sección.
